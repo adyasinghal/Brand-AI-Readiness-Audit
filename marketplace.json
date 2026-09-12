@@ -1,0 +1,11 @@
+{
+  "name": "brand-ai-readiness-audit",
+  "version": "1.0.0",
+  "skills": [
+    { "id": "audit-orchestrator", "path": "skills/audit-orchestrator", "entrypoint": true },
+    { "id": "crawl-render-audit", "path": "skills/crawl-render-audit" },
+    { "id": "semantic-data-audit", "path": "skills/semantic-data-audit" },
+    { "id": "entity-authority-audit", "path": "skills/entity-authority-audit" },
+    { "id": "engagement-friction-audit", "path": "skills/engagement-friction-audit" }
+  ]
+}

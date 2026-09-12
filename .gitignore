@@ -1,1 +1,5 @@
 /personal_docs
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
