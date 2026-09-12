@@ -94,10 +94,11 @@ def main():
 
     # Invariant I-1: Evidence-sufficiency gating (prevent overclaiming from inconclusive evidence)
     INSUFFICIENCY_MARKERS = (
-        "unverifiable", "insufficient", "unable to confirm",
+        "unverifiable", "unverified", "uncorroborated", "insufficient", "unable to confirm",
         "search plugin unavailable", "search tool unavailable",
         "corroboration unavailable", "evidence inconclusive",
-        "could not be verified", "0 corroborating"
+        "could not be verified", "0 corroborating", "zero corroborating",
+        "zero mentions", "zero authoritative"
     )
     for f in deduped_findings:
         scan_text = (
