@@ -95,12 +95,17 @@ def main():
     # Invariant I-1: Evidence-sufficiency gating (prevent overclaiming from inconclusive evidence)
     INSUFFICIENCY_MARKERS = (
         "unverifiable", "insufficient", "unable to confirm",
-        "search plugin unavailable", "corroboration unavailable",
-        "evidence inconclusive", "could not be verified"
+        "search plugin unavailable", "search tool unavailable",
+        "corroboration unavailable", "evidence inconclusive",
+        "could not be verified", "0 corroborating"
     )
     for f in deduped_findings:
-        ev_text = (str(f.get("evidence") or "") + " " + str(f.get("mechanism") or "")).lower()
-        if any(marker in ev_text for marker in INSUFFICIENCY_MARKERS):
+        scan_text = (
+            str(f.get("title") or "") + " " +
+            str(f.get("evidence") or "") + " " +
+            str(f.get("mechanism") or "")
+        ).lower()
+        if any(marker in scan_text for marker in INSUFFICIENCY_MARKERS):
             if f.get("severity") in ("critical", "high", "medium"):
                 f["severity"] = "low"
                 f["evidence"] = str(f.get("evidence", "")) + " [Note: Severity capped to low due to inconclusive/insufficient evidence per Invariant I-1]."

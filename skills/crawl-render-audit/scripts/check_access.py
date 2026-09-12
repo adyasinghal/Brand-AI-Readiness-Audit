@@ -126,7 +126,7 @@ def audit_sitemap(base_url, robots_content):
         return findings, proactive
 
     try:
-        root = ET.fromstring(xml_text)
+        root = ET.fromstring(xml_text.lstrip())
         lastmods = []
         for elem in root.iter():
             if elem.tag.endswith("lastmod") and elem.text:

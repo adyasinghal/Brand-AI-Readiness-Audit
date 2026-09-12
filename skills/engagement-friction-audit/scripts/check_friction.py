@@ -142,23 +142,9 @@ def audit_friction_and_email(html_content):
             },
         })
 
-    # 5. Semantic Heading Hierarchy Integrity (H1 document anchoring)
+    # 5. Semantic Heading Hierarchy Integrity (Multiple H1 consolidation)
     h1_count = len(re.findall(r"<h1\b", html_content, re.IGNORECASE))
-    if h1_count == 0:
-        findings.append({
-            "category": "user_experience",
-            "title": "Missing primary H1 document heading for content anchoring",
-            "severity": "medium",
-            "evidence": "No <h1> heading element detected in page markup.",
-            "mechanism": "Visitors following AI citations need immediate visual confirmation of the topic. A missing H1 creates semantic disorientation and increases referral bounce rates.",
-            "suggested_action": {
-                "summary": "Add a prominent, descriptive <h1> heading to the primary content area.",
-                "priority": "medium",
-                "implementation_detail": "Include a single, clear <h1> summarizing the page topic above the primary content.",
-                "expected_outcome": "Immediate topic confirmation for visitors arriving from AI search summaries.",
-            },
-        })
-    elif h1_count > 1:
+    if h1_count > 1:
         proactive.append({
             "title": f"Consolidate multiple ({h1_count}) H1 headings into a single document anchor",
             "impact": "low",

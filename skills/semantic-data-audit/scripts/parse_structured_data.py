@@ -171,15 +171,24 @@ def audit_schema_coverage(html_content, extracted_entities, syntax_errors=None):
         })
 
     # 2. Generalized Gated Vertical Schemas: Proactive only when on-page signals exist
-    # Product check: dual linear check for price AND purchase intent (prevents empty snippets & backtracking)
+    # Product check: requires price AND high-intent cart action within a localized proximity window (<= 400 chars)
+    # to distinguish true e-commerce product listings from marketing calculators or payment gateway copy.
     if "Product" not in found_types:
-        price_m = re.search(r"[\$€£₹]\s*\d+(?:\.\d{2})?", html_content)
-        cart_m = re.search(r"\b(add\s+to\s+cart|buy\s+now|checkout|in\s+stock|sku)\b", html_content, re.IGNORECASE)
-        if price_m and cart_m:
+        price_matches = list(re.finditer(r"[\$€£₹]\s*\d+(?:\.\d{2})?", html_content))
+        cart_matches = list(re.finditer(r"\b(add\s+to\s+cart|buy\s+now|in\s+stock|sku|order\s+now)\b", html_content, re.IGNORECASE))
+        proximate_pair = None
+        for pm in price_matches:
+            for cm in cart_matches:
+                if abs(pm.start() - cm.start()) <= 400:
+                    proximate_pair = (pm.group(0), cm.group(0))
+                    break
+            if proximate_pair:
+                break
+        if proximate_pair:
             proactive.append({
                 "title": "Add Product schema to match detected on-page content",
                 "impact": "low",
-                "rationale": f"Detected e-commerce transactional signals on-page ('{price_m.group(0)}' with '{cart_m.group(0)}'), but no corresponding Product JSON-LD was declared.",
+                "rationale": f"Detected e-commerce transactional signals on-page ('{proximate_pair[0]}' with '{proximate_pair[1]}'), but no corresponding Product JSON-LD was declared.",
                 "suggested_action": "Structure this content using schema.org/Product so AI assistants can extract exact specifications and pricing without hallucination.",
             })
 
