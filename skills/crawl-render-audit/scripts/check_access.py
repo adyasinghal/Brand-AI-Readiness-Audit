@@ -289,6 +289,25 @@ def main():
             }
         })
 
+    has_nosnippet = any(
+        m.get("name", "").lower() == "robots" and "nosnippet" in m.get("content", "").lower()
+        for m in meta_tags
+    )
+    if has_nosnippet:
+        findings.append({
+            "category": "crawlability",
+            "title": "Meta robots prevents search snippet and citation generation ('nosnippet')",
+            "severity": "high",
+            "evidence": "Detected <meta name='robots' content='nosnippet'> directive in <head>.",
+            "mechanism": "The nosnippet directive instructs search and AI engines not to show text snippets or quote excerpts in answers.",
+            "suggested_action": {
+                "summary": "Remove nosnippet directive to allow AI search citation snippets.",
+                "priority": "high",
+                "implementation_detail": "Remove 'nosnippet' from the robots meta tag in <head>.",
+                "expected_outcome": "Allows AI search engines to generate informative citation cards and quotation previews.",
+            }
+        })
+
     # CSR shell check: Distinguish between 100% empty shell (Critical) and partial render gap (High)
     body_m = re.search(r"<body[^>]*>(.*?)</body>", html_content, re.DOTALL | re.IGNORECASE)
     body_html = body_m.group(1) if body_m else html_content
@@ -355,6 +374,8 @@ def main():
         cache_path = os.path.join(cache_dir, "page.html")
         with open(cache_path, "w", encoding="utf-8", errors="replace") as cf:
             cf.write(html_content)
+        with open(os.path.join(cache_dir, "page.url"), "w", encoding="utf-8", errors="replace") as uf:
+            uf.write(target_url)
     except OSError:
         pass  # Non-fatal: downstream scripts will live-fetch as fallback
 

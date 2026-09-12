@@ -216,13 +216,17 @@ def main():
     findings = []
     proactive = []
 
-    # Cache-first fetch: reuse HTML retrieved by check_access.py if available
+    # Cache-first fetch: reuse HTML retrieved by check_access.py if target_url matches
     html_content = None
     cache_path = "/tmp/audit_runs/page.html"
-    if os.path.exists(cache_path):
+    cache_url_path = "/tmp/audit_runs/page.url"
+    if os.path.exists(cache_path) and os.path.exists(cache_url_path):
         try:
-            with open(cache_path, "r", encoding="utf-8", errors="replace") as cf:
-                html_content = cf.read()
+            with open(cache_url_path, "r", encoding="utf-8") as uf:
+                cached_url = uf.read().strip()
+            if cached_url == target_url:
+                with open(cache_path, "r", encoding="utf-8", errors="replace") as cf:
+                    html_content = cf.read()
         except OSError:
             html_content = None
 

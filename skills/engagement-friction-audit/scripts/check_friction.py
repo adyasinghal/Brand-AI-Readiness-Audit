@@ -82,6 +82,22 @@ def audit_friction_and_email(html_content):
                 "expected_outcome": "Eliminates immediate mobile bounce upon arrival.",
             },
         })
+    else:
+        vp_content = next((m.get("content", "").lower() for m in meta_tags if m.get("name", "").lower() == "viewport"), "")
+        if "user-scalable=no" in vp_content or "maximum-scale=1.0" in vp_content or "maximum-scale=1," in vp_content:
+            findings.append({
+                "category": "user_experience",
+                "title": "Viewport meta tag disables mobile user zooming ('user-scalable=no')",
+                "severity": "medium",
+                "evidence": f"Viewport content attribute contains zoom restriction: '{vp_content}'.",
+                "mechanism": "Disabling pinch-to-zoom degrades readability for mobile users referred by AI engines, increasing bounce rates.",
+                "suggested_action": {
+                    "summary": "Allow user zooming by removing user-scalable restriction.",
+                    "priority": "medium",
+                    "implementation_detail": 'Use <meta name="viewport" content="width=device-width, initial-scale=1.0"> without user-scalable=no.',
+                    "expected_outcome": "Improves mobile reading accessibility and retains referred visitors.",
+                },
+            })
 
     # 2. Intrusive Modal / Overlay Detection
     modal_patterns = re.compile(r'class=[\"\'][^\"\']*(?:modal-backdrop|overlay-active|newsletter-popup|interstitial)[^\"\']*[\"\']', re.IGNORECASE)
@@ -163,13 +179,17 @@ def main():
     findings = []
     proactive = []
 
-    # Cache-first fetch: reuse HTML retrieved by check_access.py if available
+    # Cache-first fetch: reuse HTML retrieved by check_access.py if target_url matches
     html_content = None
     cache_path = "/tmp/audit_runs/page.html"
-    if os.path.exists(cache_path):
+    cache_url_path = "/tmp/audit_runs/page.url"
+    if os.path.exists(cache_path) and os.path.exists(cache_url_path):
         try:
-            with open(cache_path, "r", encoding="utf-8", errors="replace") as cf:
-                html_content = cf.read()
+            with open(cache_url_path, "r", encoding="utf-8") as uf:
+                cached_url = uf.read().strip()
+            if cached_url == target_url:
+                with open(cache_path, "r", encoding="utf-8", errors="replace") as cf:
+                    html_content = cf.read()
         except OSError:
             html_content = None
 
