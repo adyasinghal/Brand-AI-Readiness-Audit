@@ -123,6 +123,8 @@ def audit_sitemap(base_url, robots_content):
                 "expected_outcome": "Immediate discovery of new and updated pages by AI bots.",
             }
         })
+        return findings, proactive
+
     # Guard against soft-404: single-page applications or web servers returning HTML for /sitemap.xml
     stripped_lower = xml_text.strip().lower()
     if stripped_lower.startswith(("<!doctype", "<html")):
