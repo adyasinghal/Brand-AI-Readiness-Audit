@@ -23,7 +23,9 @@ def resolve_entity_identity(artifacts, deadline):
     ambiguity_set = aliases[1:] if len(aliases) > 1 else []
 
     same_as = primary.get("sameAs", [])
-    if not isinstance(same_as, list):
+    if isinstance(same_as, (list, tuple)):
+        same_as = list(same_as)
+    else:
         same_as = [same_as] if same_as else []
 
     data = {

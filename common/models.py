@@ -1,8 +1,52 @@
 """Immutable shared dataclasses and schema helpers (v4.0, sections 2 and 9)."""
 from __future__ import annotations
+import hashlib
+import json
 from dataclasses import dataclass
 from time import monotonic
+from types import MappingProxyType
 from typing import Optional
+
+
+def freeze_value(value):
+    """Recursively wrap dicts/lists in read-only views. Second-layer defense on top
+    of frozen(=True) dataclasses (section 2): a MappingProxyType raises TypeError on
+    any write attempt, so accidental mutation fails loudly instead of silently
+    corrupting shared state.
+    """
+    if isinstance(value, dict):
+        return MappingProxyType({k: freeze_value(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(freeze_value(v) for v in value)
+    if isinstance(value, tuple):
+        return tuple(freeze_value(v) for v in value)
+    return value
+
+
+def _jsonable(value):
+    """Recursive, deepcopy-free conversion to JSON-safe structures. Written by hand
+    (rather than dataclasses.asdict, which deepcopies every leaf and cannot deepcopy
+    a MappingProxyType) so it works directly on the frozen artifacts, mutation-proof
+    dict fields included."""
+    from dataclasses import is_dataclass, fields
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _jsonable(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, MappingProxyType):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def hash_artifacts(artifacts) -> str:
+    """Stable content hash used by the frozen-artifact acceptance test: any change to
+    artifacts between two hashes (including a nested-dict mutation that `frozen=True`
+    alone would not catch) is detected."""
+    payload = _jsonable(artifacts)
+    blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
 
 
 @dataclass(frozen=True)

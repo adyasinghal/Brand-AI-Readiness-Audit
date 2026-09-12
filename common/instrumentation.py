@@ -1,0 +1,100 @@
+"""instrumentation.py -- runtime instrumentation layer (v4.0 addendum).
+
+Records real, measured values -- never placeholders. Anything this process
+cannot measure is left as None (see AS_TELEMETRY's explicit "unavailable"
+handling) rather than a fabricated zero.
+"""
+from __future__ import annotations
+import threading
+import tracemalloc
+from dataclasses import dataclass, field
+from time import monotonic
+from typing import Optional
+
+
+@dataclass
+class Instrumentation:
+    """Thread-safe recorder shared across the acquisition and analysis stages."""
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    stage_timings: dict = field(default_factory=dict)          # stage -> {"start": t, "end": t}
+    requests_attempted: int = 0
+    requests_completed: int = 0
+    requests_failed: int = 0
+    bytes_downloaded: int = 0
+    pages_skipped: int = 0
+    pages_skipped_reasons: list = field(default_factory=list)
+    external_fetches_attempted: int = 0
+    external_fetches_completed: int = 0
+    worker_timeout_events: list = field(default_factory=list)  # [{"stage":..,"worker":..,"at":..}]
+    _tracemalloc_started_here: bool = field(default=False, repr=False)
+
+    def start_stage(self, name: str) -> None:
+        with self._lock:
+            self.stage_timings[name] = {"start": monotonic(), "end": None}
+
+    def end_stage(self, name: str) -> None:
+        with self._lock:
+            if name in self.stage_timings:
+                self.stage_timings[name]["end"] = monotonic()
+
+    def record_request(self, ok: bool, nbytes: int = 0) -> None:
+        with self._lock:
+            self.requests_attempted += 1
+            if ok:
+                self.requests_completed += 1
+                self.bytes_downloaded += nbytes
+            else:
+                self.requests_failed += 1
+
+    def record_skip(self, reason: str) -> None:
+        with self._lock:
+            self.pages_skipped += 1
+            self.pages_skipped_reasons.append(reason)
+
+    def record_external_fetch(self, ok: bool) -> None:
+        with self._lock:
+            self.external_fetches_attempted += 1
+            if ok:
+                self.external_fetches_completed += 1
+
+    def record_worker_timeout(self, stage: str, worker: str) -> None:
+        with self._lock:
+            self.worker_timeout_events.append({"stage": stage, "worker": worker, "at": monotonic()})
+
+    def start_memory_tracking(self) -> None:
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+            self._tracemalloc_started_here = True
+
+    def stop_memory_tracking_mb(self) -> Optional[float]:
+        if not tracemalloc.is_tracing():
+            return None
+        _current, peak = tracemalloc.get_traced_memory()
+        if self._tracemalloc_started_here:
+            tracemalloc.stop()
+        return round(peak / (1024 * 1024), 3)
+
+    def stage_duration_s(self, name: str) -> Optional[float]:
+        t = self.stage_timings.get(name)
+        if not t or t["end"] is None:
+            return None
+        return round(t["end"] - t["start"], 3)
+
+    def as_dict(self, memory_peak_mb: Optional[float]) -> dict:
+        return {
+            "stage_timings_s": {
+                name: {"start": v["start"], "end": v["end"],
+                       "duration": self.stage_duration_s(name)}
+                for name, v in self.stage_timings.items()
+            },
+            "requests_attempted": self.requests_attempted,
+            "requests_completed": self.requests_completed,
+            "requests_failed": self.requests_failed,
+            "bytes_downloaded": self.bytes_downloaded,
+            "pages_skipped": self.pages_skipped,
+            "pages_skipped_reasons": self.pages_skipped_reasons,
+            "external_fetches_attempted": self.external_fetches_attempted,
+            "external_fetches_completed": self.external_fetches_completed,
+            "worker_timeout_events": self.worker_timeout_events,
+            "memory_peak_mb": memory_peak_mb,  # None means "not measured", never a fabricated 0
+        }

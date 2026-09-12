@@ -1,41 +1,144 @@
-"""analyze_rendering.py -- raw vs rendered content gaps (v4.0 section 8.2). Returns gap
-pages only via SkillResult.metrics; never writes back into PageArtifact."""
+"""analyze_rendering.py -- raw vs rendered content gaps (v4.0 section 8.2).
+
+Two tiers, matching common/capabilities.py:
+  - "rendering_gap_heuristic" (executable, always runs): flags pages whose raw HTML
+    shows near-zero visible text -- a real, evidence-backed signal that needs no
+    browser, but on its own can't distinguish "needs JS" from "genuinely thin page".
+  - "rendering_headless_browser" (fallback/optional): when a real headless browser
+    is available (see capabilities.detect_capabilities), every heuristic-flagged page
+    is actually re-rendered and compared against the static fetch. A page is only a
+    *confirmed* defect when rendering reveals substantial content the raw HTML
+    lacked; if rendering also comes back thin (or fails), that page is not a
+    confirmed gap -- it's insufficient evidence, not a fabricated defect. Bounded by
+    MAX_RENDERED_PAGES and PER_FETCH_TIMEOUT_MS; a single page's render failure
+    never aborts the batch.
+
+Returns gap pages only via SkillResult.metrics; never writes back into PageArtifact.
+"""
 from models import skill_result, make_finding, insufficient_evidence_result
 
+_MIN_SUBSTANTIAL_CHARS = 200
 
-def analyze_rendering(artifacts, deadline, limits):
-    rendered_pages = [p for p in artifacts.pages if p.render_status == "rendered"]
-    if not rendered_pages:
+
+def _heuristic_gap_pages(pages):
+    """Executable today: raw HTML with very little visible text."""
+    return [p.url for p in pages
+            if len((p.visible_text or "").strip()) < _MIN_SUBSTANTIAL_CHARS
+            and (p.status_code == 200 or p.status_code is None)]
+
+
+def _render_with_headless_browser(urls: list, limits) -> dict:
+    """Tier 2 (optional): actually renders each URL with a real headless browser and
+    returns {url: rendered_text_length_or_None}. A per-page failure degrades that
+    page to None; it never raises out of this function. Bounded by MAX_RENDERED_PAGES
+    (how many pages get rendered at all) -- retained evidence is further capped by
+    MAX_RETAINED_RENDERED_PAGES by the caller."""
+    urls = urls[: limits.MAX_RENDERED_PAGES]
+    rendered_lengths = {}
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            for url in urls:
+                try:
+                    page.goto(url, timeout=limits.PER_FETCH_TIMEOUT_MS, wait_until="networkidle")
+                    text = page.inner_text("body")
+                    rendered_lengths[url] = len((text or "").strip())
+                except Exception:
+                    rendered_lengths[url] = None
+            browser.close()
+    except Exception:
+        return {}
+    return rendered_lengths
+
+
+def analyze_rendering(artifacts, deadline, limits, capabilities=None):
+    capabilities = capabilities or {}
+    headless_available = bool(capabilities.get("headless_rendering"))
+
+    if not artifacts.pages:
         return insufficient_evidence_result(
-            "crawl-render-audit",
-            "No headless rendering available in this environment; rendering-dependent "
-            "checks are reported as insufficient evidence, not defects.",
-            metrics={"rendered_pages": 0, "raw_rendered_gap_pages": []},
+            "crawl-render-audit", "No pages were acquired; rendering cannot be assessed.",
+            metrics={"rendered_pages": 0, "raw_rendered_gap_pages": [],
+                     "rendering_mode": "headless_browser" if headless_available else "heuristic_only"},
         )
 
-    gap_pages = [p.url for p in rendered_pages if len(p.visible_text) < 200]
-
+    heuristic_gap_pages = _heuristic_gap_pages(artifacts.pages)
     findings = []
-    if gap_pages:
+    confirmed_gap_pages = []
+    rendered_count = 0
+
+    if headless_available and heuristic_gap_pages:
+        rendered_lengths = _render_with_headless_browser(heuristic_gap_pages, limits)
+        rendered_count = sum(1 for v in rendered_lengths.values() if v is not None)
+        confirmed_gap_pages = [
+            url for url, length in rendered_lengths.items()
+            if length is not None and length >= _MIN_SUBSTANTIAL_CHARS
+        ]
+        # Pages that still render thin (or failed to render) are NOT a confirmed
+        # rendering gap -- they may just be genuinely thin pages. Report separately,
+        # calibrated as insufficient evidence, never as a fabricated defect.
+        unconfirmed = [u for u in heuristic_gap_pages if u not in confirmed_gap_pages]
+        if unconfirmed:
+            findings.append(make_finding(
+                category="ai_discoverability", finding_type="proactive_improvement", severity="low",
+                status="insufficient_evidence", confidence=0.3,
+                title="Some near-empty pages could not be confirmed as rendering gaps",
+                root_cause="Headless rendering also returned little content, or failed, "
+                           "for these pages -- could be genuinely thin content rather than a JS dependency",
+                evidence=[{"type": "render_gap_unconfirmed", "description": "Rendered content still thin or unavailable",
+                           "urls": unconfirmed[:10]}],
+                suggested_action={"summary": "Manually inspect these pages to confirm whether content is missing",
+                                   "steps": ["Open the page in a browser and compare to the raw HTML"],
+                                   "priority": "low", "effort": "low",
+                                   "expected_benefit": "Clarifies whether a real rendering fix is needed",
+                                   "verification": "Manual inspection"},
+                provenance={"skill": "crawl-render-audit", "script": "analyze_rendering.py",
+                            "rule_id": "render-gap-unconfirmed", "tier": "rendering_headless_browser"},
+            ))
+
+        if confirmed_gap_pages:
+            findings.append(make_finding(
+                category="ai_discoverability", finding_type="defect", severity="high",
+                status="confirmed", confidence=0.9,
+                title="Content requires JavaScript rendering to appear",
+                root_cause="Raw HTML is near-empty but headless rendering reveals substantial content",
+                evidence=[{"type": "render_gap", "description": "Rendered content is substantial; static fetch is not",
+                           "urls": confirmed_gap_pages[: limits.MAX_RETAINED_RENDERED_PAGES]}],
+                suggested_action={
+                    "summary": "Server-side render or pre-render key content",
+                    "steps": ["Add SSR or static generation for key pages"],
+                    "priority": "high", "effort": "high",
+                    "expected_benefit": "Content becomes machine-readable without JS",
+                    "verification": "Confirm raw HTML contains key facts",
+                },
+                provenance={"skill": "crawl-render-audit", "script": "analyze_rendering.py",
+                            "rule_id": "render-gap", "tier": "rendering_headless_browser"},
+            ))
+    elif heuristic_gap_pages:
+        # No headless browser available: the heuristic alone can only suspect, not confirm.
         findings.append(make_finding(
             category="ai_discoverability", finding_type="defect", severity="high",
-            status="confirmed", confidence=0.8,
-            title="Content requires JavaScript rendering to appear",
-            root_cause="Raw HTML lacks the content visible after rendering",
+            status="suspected", confidence=0.6,
+            title="Content appears to require JavaScript rendering",
+            root_cause="Raw HTML shows near-empty visible content consistent with client-side rendering",
             evidence=[{"type": "render_gap", "description": "Static fetch returns near-empty content",
-                       "urls": gap_pages[:10]}],
+                       "urls": heuristic_gap_pages[:10]}],
             suggested_action={
                 "summary": "Server-side render or pre-render key content",
-                "steps": ["Add SSR or static generation for key pages"],
+                "steps": ["Add SSR or static generation for key pages",
+                          "Re-run this audit with a headless-rendering capability to confirm"],
                 "priority": "high", "effort": "high",
                 "expected_benefit": "Content becomes machine-readable without JS",
                 "verification": "Confirm raw HTML contains key facts",
             },
             provenance={"skill": "crawl-render-audit", "script": "analyze_rendering.py",
-                        "rule_id": "render-gap"},
+                        "rule_id": "render-gap", "tier": "rendering_gap_heuristic"},
         ))
 
     return skill_result(
         "crawl-render-audit", findings=findings,
-        metrics={"rendered_pages": len(rendered_pages), "raw_rendered_gap_pages": gap_pages},
+        metrics={"rendered_pages": rendered_count, "raw_rendered_gap_pages": confirmed_gap_pages or heuristic_gap_pages,
+                 "rendering_mode": "headless_browser" if headless_available else "heuristic_only"},
     )
