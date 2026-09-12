@@ -1,3 +1,5 @@
+# By Aarush_Moha_Mathur; version-1 ; Not final yet; Analaysis doesnt prove 10/10 yet.
+
 # Brand AI-Readiness Audit Marketplace (v4.0)
 
 An Agent Skill Marketplace (agentskills.io format) that audits a website for
