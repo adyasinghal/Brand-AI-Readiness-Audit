@@ -278,6 +278,15 @@ def main():
             "Establish two or three additional official profiles (for example LinkedIn, Wikidata, a relevant directory), link them from the site, and list all of them in an Organization sameAs array.",
             effort="medium"))
 
+    # Sitemap freshness: what the site tells crawlers about its own updates
+    sm_year = snap.get("sitemap_latest_lastmod_year")
+    if snap.get("sitemap_found") and sm_year and now_year - sm_year >= 2:
+        findings.append(finding(
+            "FC-16", "Sitemap advertises stale content to crawlers", "medium",
+            "The XML sitemap's newest lastmod date is {} ({} years behind {}). The sitemap is the site's own statement of what changed and when; one that says nothing has changed in years tells crawlers and AI retrieval systems to deprioritize revisits.".format(sm_year, now_year - sm_year, now_year),
+            "Regenerate the sitemap so lastmod reflects real modification dates, and keep it updating automatically as content changes.",
+            effort="low"))
+
     _write(args.workdir, findings)
     print("freshness-corroboration: {} findings".format(len(findings)))
     return 0

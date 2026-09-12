@@ -19,7 +19,7 @@ Diagnosing trust: a machine that CAN read the site still decides whether the fac
    ```
    python3 skills/freshness-corroboration/scripts/freshness_audit.py --workdir <dir>
    ```
-2. The script extracts date signals (JSON-LD datePublished/dateModified, article meta tags, visible textual dates, footer copyright years), identity signals (Organization/WebSite types, sameAs arrays, og:site_name, title patterns), and corroboration signals (outbound links to independent profile hosts), then runs checks FC-01 to FC-15 (freshness, entity identity, corroboration, and answer/generative engine optimization).
+2. The script extracts date signals (JSON-LD datePublished/dateModified, article meta tags, visible textual dates, footer copyright years), identity signals (Organization/WebSite types, sameAs arrays, og:site_name, title patterns), and corroboration signals (outbound links to independent profile hosts), then runs checks FC-01 to FC-16 (freshness including sitemap lastmod staleness, entity identity, corroboration, and answer/generative engine optimization).
 
 Check definitions, thresholds (e.g. the 18-month staleness cutoff), and rationale: `references/checks.md`. That file also documents an optional manual off-site corroboration procedure (searching community platforms for the brand) that stays out of the automated path so the marketplace never depends on a third-party service.
 

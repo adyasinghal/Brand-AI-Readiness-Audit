@@ -35,6 +35,7 @@ The entrypoint always emits this shape. Contest-required fields are marked REQUI
     "marketplace": "brand-ai-readiness-audit",
     "version": "1.0.0",
     "skill_runs": [ { "skill": "crawl-render-audit", "ok": true, "note": "..." } ],
+    "coverage": { "internal_links_discovered_on_homepage": 42, "pages_sampled": 8, "pages_fetched_ok": 8, "pages_blocked_by_robots": 0, "sitemap_found": true, "llms_txt_present": false, "external_checks": "skipped (opt-in)" },
     "pages_sampled": [ { "url": "https://example.com/", "status": 200 } ]
   }
 }

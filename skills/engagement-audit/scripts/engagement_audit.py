@@ -259,6 +259,15 @@ def main():
                 "Add at least one genuinely useful interactive element where it fits the content: a contact or signup form, a price or savings calculator, a product filter, an expandable FAQ, or a short demo video.",
                 effort="medium"))
 
+    # ---- Interruption friction (EN-17) ---------------------------------
+    interstitial_pages = [p["url"] for p in pages if p["features"].get("interstitial_signals", 0) > 0]
+    if interstitial_pages:
+        findings.append(finding(
+            "EN-17", "Interstitial or popup patterns detected in the markup", "low",
+            "{} sampled page(s) contain elements whose class names unambiguously mark popups or interstitials (newsletter-popup, interstitial, popup-overlay, exit-popup), e.g. {}. Visitors arriving from an AI answer came for one specific thing; an interposed overlay is the fastest way to send them back.".format(len(interstitial_pages), interstitial_pages[0]),
+            "Delay promotional overlays until the visitor has engaged (scroll depth or time on page), never show them on first paint, and keep a visible dismiss control.",
+            effort="low"))
+
     _write(args.workdir, findings)
     print("engagement-audit: {} findings".format(len(findings)))
     return 0

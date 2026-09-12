@@ -103,6 +103,18 @@ def proactive_suggestions(workdir, findings):
         all_types.update(p["features"].get("jsonld_types", []))
 
     out = []
+    email_capture_present = any(
+        p["features"].get("forms", 0) > 0
+        and (p["features"].get("email_capture")
+             or "newsletter" in p["features"].get("visible_text", "").lower()
+             or "subscribe" in p["features"].get("visible_text", "").lower())
+        for p in pages)
+    if email_capture_present:
+        out.append({
+            "title": "Format outbound emails to survive inbox AI summarizers",
+            "priority": "low",
+            "rationale": "The site collects email subscribers, and modern inboxes show AI-generated summaries of long messages built from readable text. Emails whose substance sits in banner images or below filler lose it in the summary. Keep a clean plain-text or multipart fallback, front-load the key offer and call to action in the first lines, and never carry the core message only inside an image.",
+        })
     if pages and "FAQPage" not in all_types and "EN-09" not in checks_fired:
         out.append({
             "title": "Mark up existing FAQ content with FAQPage JSON-LD",
@@ -189,6 +201,7 @@ def main():
             "marketplace": manifest.get("name"),
             "version": manifest.get("version"),
             "skill_runs": runs,
+            "coverage": _coverage(workdir, args.external_checks),
             "pages_sampled": _pages_sampled(workdir),
         },
     }
@@ -224,6 +237,28 @@ def _pages_sampled(workdir):
         return [{"url": p["url"], "status": p["status"]} for p in snap.get("pages", [])]
     except (OSError, json.JSONDecodeError):
         return []
+
+
+def _coverage(workdir, external_ran):
+    """What the audit saw versus skipped, so absence of a finding is never
+    mistaken for evidence when coverage was the real limit."""
+    try:
+        with open(os.path.join(workdir, "site_snapshot.json"), encoding="utf-8") as fh:
+            snap = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {"note": "no snapshot; crawl did not complete"}
+    pages = snap.get("pages", [])
+    home = pages[0] if pages else {}
+    home_links = len((home.get("features") or {}).get("links", []))
+    return {
+        "internal_links_discovered_on_homepage": home_links,
+        "pages_sampled": len(pages),
+        "pages_fetched_ok": sum(1 for p in pages if p.get("status") == 200 and p.get("features")),
+        "pages_blocked_by_robots": sum(1 for p in pages if p.get("robots_blocked")),
+        "sitemap_found": bool(snap.get("sitemap_found")),
+        "llms_txt_present": bool(snap.get("llms_txt_present")),
+        "external_checks": "run" if external_ran else "skipped (opt-in)",
+    }
 
 
 if __name__ == "__main__":

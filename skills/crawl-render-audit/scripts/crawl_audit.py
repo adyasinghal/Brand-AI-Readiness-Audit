@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import gzip
 import json
 import os
 import re
@@ -27,7 +28,9 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 
 USER_AGENT = "BrandAuditBot/1.0 (read-only site audit; contact: hackathon submission)"
-AI_CRAWLERS = ["GPTBot", "ClaudeBot", "Claude-Web", "PerplexityBot", "Google-Extended", "CCBot", "anthropic-ai", "Bytespider", "Amazonbot"]
+AI_CRAWLERS = ["GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "PerplexityBot",
+               "Google-Extended", "Applebot-Extended", "CCBot", "anthropic-ai",
+               "cohere-ai", "Meta-ExternalAgent", "Bytespider", "Amazonbot"]
 DEFAULT_TIMEOUT = 8
 MAX_HTML_BYTES = 1_500_000
 GLOBAL_TIME_BUDGET = 150  # seconds for the whole crawl phase
@@ -90,6 +93,8 @@ class FeatureParser(HTMLParser):
         self.head_blocking_scripts = 0   # external scripts in <head> without defer/async
         self.images_missing_dims = 0     # img without both width and height attributes
         self.images_lazy = 0             # img with loading="lazy"
+        self.email_capture = False       # email-type input (newsletter/lead capture)
+        self.interstitial_signals = 0    # class names that unambiguously mark popups
         self._in_head = False
         self._stack = []
         self._in_script = False
@@ -110,6 +115,9 @@ class FeatureParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         self._stack.append(tag)
+        cls = (a.get("class") or "").lower()
+        if cls and any(tok in cls for tok in ("interstitial", "newsletter-popup", "popup-overlay", "exit-popup")):
+            self.interstitial_signals += 1
         if tag == "script":
             self._in_script = True
             self._script_type = (a.get("type") or "").lower()
@@ -167,6 +175,8 @@ class FeatureParser(HTMLParser):
         elif tag == "input":
             self.inputs_total += 1
             itype = (a.get("type") or "").lower()
+            if itype == "email" or "email" in (a.get("name") or "").lower() or "email" in (a.get("placeholder") or "").lower():
+                self.email_capture = True
             name = (a.get("name") or "").lower()
             if itype == "search" or "search" in name or "search" in (a.get("placeholder") or "").lower():
                 self.has_search_input = True
@@ -291,7 +301,7 @@ def extract_features(url, html):
     has_price_pattern = bool(re.search(
         r"(?:[$\u20ac\u00a3\u20b9]\s?\d|\b(?:USD|EUR|INR|GBP)\s?\d|\bRs\.?\s?\d)", visible_text))
 
-    jsonld_parsed, jsonld_errors = [], 0
+    jsonld_parsed, jsonld_errors, jsonld_error_details = [], 0, []
     for raw in parser.jsonld_raw:
         try:
             data = json.loads(raw.strip())
@@ -303,8 +313,30 @@ def extract_features(url, html):
                         jsonld_parsed.extend(g for g in graph if isinstance(g, dict))
                     else:
                         jsonld_parsed.append(item)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as err:
             jsonld_errors += 1
+            if len(jsonld_error_details) < 3:
+                if isinstance(err, json.JSONDecodeError):
+                    snippet = raw.strip()[:60].replace("\n", " ")
+                    jsonld_error_details.append(
+                        "{} at line {} column {} (block starts: '{}')".format(err.msg, err.lineno, err.colno, snippet))
+                else:
+                    jsonld_error_details.append(str(err)[:120])
+
+    # Real CMSs emit @type as full URIs, CURIE-prefixed terms, or arrays.
+    # Normalize all forms to the bare schema.org name so type checks match.
+    def normalize_schema_type(t):
+        if not isinstance(t, str):
+            return ""
+        return t.strip().rsplit("/", 1)[-1].rsplit("#", 1)[-1].rsplit(":", 1)[-1]
+
+    jsonld_types = set()
+    for item in jsonld_parsed:
+        raw_type = item.get("@type")
+        for t in (raw_type if isinstance(raw_type, list) else [raw_type]):
+            norm = normalize_schema_type(t)
+            if norm:
+                jsonld_types.add(norm)
 
     return {
         "url": url,
@@ -318,9 +350,10 @@ def extract_features(url, html):
         "images_missing_alt": parser.images_missing_alt,
         "script_count": parser.script_count,
         "script_bytes": parser.script_bytes,
-        "jsonld_types": sorted({str(i.get("@type")) for i in jsonld_parsed if i.get("@type")}),
+        "jsonld_types": sorted(jsonld_types),
         "jsonld_items": jsonld_parsed[:40],
         "jsonld_parse_errors": jsonld_errors,
+        "jsonld_error_details": jsonld_error_details,
         "has_nav": parser.has_nav,
         "has_noscript": parser.has_noscript,
         "noscript_text": " ".join(parser.noscript_text.split())[:300],
@@ -349,6 +382,8 @@ def extract_features(url, html):
         "images_lazy": parser.images_lazy,
         "og_present": any(k.startswith("og:") for k in parser.meta),
         "twitter_present": any(k.startswith("twitter:") for k in parser.meta),
+        "email_capture": parser.email_capture,
+        "interstitial_signals": parser.interstitial_signals,
     }
 
 
@@ -380,6 +415,14 @@ def fetch(url, timeout=DEFAULT_TIMEOUT, binary_ok=False):
             raw = resp.read(MAX_HTML_BYTES)
             elapsed = int((time.monotonic() - start) * 1000)
             charset = resp.headers.get_content_charset() or "utf-8"
+            # Some reverse proxies force gzip even when it was not requested.
+            # Decoding raw gzip bytes would yield garbage text and could fake
+            # a render-gap finding, so detect the magic bytes and decompress.
+            if raw[:2] == b"\x1f\x8b":
+                try:
+                    raw = gzip.decompress(raw)[:MAX_HTML_BYTES]
+                except Exception:
+                    pass  # truncated stream at the cap; keep raw bytes
             if binary_ok:
                 body = raw
             else:
@@ -389,6 +432,7 @@ def fetch(url, timeout=DEFAULT_TIMEOUT, binary_ok=False):
                 "final_url": resp.geturl(),
                 "redirects": recorder.chain,
                 "content_type": resp.headers.get("Content-Type", ""),
+                "x_robots": resp.headers.get("X-Robots-Tag", "") or "",
                 "body": body,
                 "elapsed_ms": elapsed,
                 "error": None,
@@ -515,6 +559,13 @@ def run_page_checks(pages, base_url, extras):
     if home is None or home["status"] != 200:
         status = home["status"] if home else "no response"
         err = (home or {}).get("error") or ""
+        if "SSL" in err or "CERTIFICATE" in err.upper():
+            out.append(finding(
+                "CR-03", "TLS certificate failure blocks all machine access", "critical",
+                "GET {} failed with a certificate error: {}. Crawlers and AI fetchers verify certificates and treat a failing one as an unreachable site; browsers interpose a full-page warning that ends most visits.".format(base_url, err[:180]),
+                "Fix the TLS certificate (expiry, hostname mismatch, or incomplete chain) and verify with an SSL checker; until then the site is effectively offline for machines.",
+                effort="medium"))
+            return out
         out.append(finding(
             "CR-03", "Homepage is not reachable with a plain HTTP fetch", "critical",
             "GET {} returned status {} {}. A crawler that cannot load the homepage cannot discover or cite anything on the site.".format(base_url, status, err).strip(),
@@ -568,9 +619,15 @@ def run_page_checks(pages, base_url, extras):
     parse_errors = sum(p["features"]["jsonld_parse_errors"] for p in ok_pages)
     if parse_errors:
         bad = [p["url"] for p in ok_pages if p["features"]["jsonld_parse_errors"]][:3]
+        detail = ""
+        for p in ok_pages:
+            details = p["features"].get("jsonld_error_details") or []
+            if details:
+                detail = " First error: {}.".format(details[0])
+                break
         out.append(finding(
             "CR-08", "Invalid JSON-LD blocks that fail to parse", "high",
-            "{} JSON-LD block(s) across the sample are not valid JSON (for example on {}). Invalid blocks are silently ignored by consumers, so the markup delivers no value.".format(parse_errors, ", ".join(bad)),
+            "{} JSON-LD block(s) across the sample are not valid JSON (for example on {}).{} Invalid blocks are silently ignored by consumers, so the markup delivers no value.".format(parse_errors, ", ".join(bad), detail),
             "Fix the JSON syntax errors (trailing commas, unescaped quotes, comments) and validate with the schema.org validator before deploying.",
             effort="low"))
 
@@ -590,13 +647,20 @@ def run_page_checks(pages, base_url, extras):
             "Write a one-to-two sentence meta description per page that states plainly what the page offers.",
             effort="low"))
 
-    # noindex
-    noindexed = [p["url"] for p in ok_pages if "noindex" in (p["features"]["meta"].get("robots", "")).lower()]
+    # noindex (meta tag or X-Robots-Tag response header)
+    noindexed_meta = [p["url"] for p in ok_pages if "noindex" in (p["features"]["meta"].get("robots", "")).lower()]
+    noindexed_header = [p["url"] for p in ok_pages if "noindex" in (p.get("x_robots_tag") or "").lower()]
+    noindexed = sorted(set(noindexed_meta) | set(noindexed_header))
     if noindexed:
+        via = []
+        if noindexed_meta:
+            via.append("meta robots tag")
+        if noindexed_header:
+            via.append("X-Robots-Tag response header")
         out.append(finding(
-            "CR-11", "Public pages carry a meta robots noindex directive", "critical",
-            "These sampled pages ask crawlers not to index them: {}. They are invisible to search and AI retrieval by explicit instruction.".format(", ".join(noindexed[:4])),
-            "Remove the noindex directive from pages that should be discoverable; keep it only on genuinely private or duplicate pages.",
+            "CR-11", "Public pages carry a noindex directive", "critical",
+            "These sampled pages ask crawlers not to index them (via {}): {}. They are invisible to search and AI retrieval by explicit instruction.".format(" and ".join(via), ", ".join(noindexed[:4])),
+            "Remove the noindex directive (check both the meta tag and the X-Robots-Tag header) from pages that should be discoverable; keep it only on genuinely private or duplicate pages.",
             effort="low"))
 
     # Canonical and lang
@@ -750,6 +814,21 @@ def run_page_checks(pages, base_url, extras):
             "Add width and height attributes to images and loading=\"lazy\" to below-the-fold images.",
             effort="low"))
 
+    # ---- Deep-link citability (CR-27) -----------------------------------
+    hash_pages = []
+    for p in ok_pages:
+        hash_links = sum(1 for href, _ in p["features"].get("links", [])
+                         if href.startswith("#/") or href.startswith("#!"))
+        if hash_links >= 2:
+            hash_pages.append((p["url"], hash_links))
+    if hash_pages:
+        worst_url, worst_n = max(hash_pages, key=lambda x: x[1])
+        out.append(finding(
+            "CR-27", "Hash-based client routing breaks deep-link citations", "medium",
+            "{} page(s) navigate with hash fragments, e.g. {} carries {} links like href=\"#/...\". Fragments are never sent to the server, so AI assistants and search engines cannot cite, crawl, or deep-link those destinations; a shared link lands on the homepage state instead.".format(len(hash_pages), worst_url, worst_n),
+            "Move to path-based routing (HTML5 History API, e.g. BrowserRouter instead of HashRouter) with server rewrites so every destination has a real, citable URL.",
+            effort="high"))
+
     return out
 
 
@@ -783,17 +862,32 @@ def main():
         except Exception:
             return True
 
-    # sitemap probe
+    # sitemap probe: fetch even when robots.txt declares one, so lastmod
+    # freshness can be read; a declared-but-unfetchable sitemap still counts
+    # as found for CR-16 purposes.
     sitemap_url = sitemaps[0] if sitemaps else origin + "/sitemap.xml"
-    sitemap_found, sitemap_status = bool(sitemaps), None
-    if not sitemap_found:
-        sm = fetch(sitemap_url)
-        sitemap_status = sm["status"]
-        sitemap_found = sm["status"] == 200 and ("<urlset" in sm["body"] or "<sitemapindex" in sm["body"])
+    sm = fetch(sitemap_url)
+    sitemap_status = sm["status"]
+    sitemap_fetch_ok = sm["status"] == 200 and ("<urlset" in sm["body"] or "<sitemapindex" in sm["body"])
+    sitemap_found = sitemap_fetch_ok or bool(sitemaps)
+    sitemap_latest_lastmod_year = None
+    if sitemap_fetch_ok:
+        years = [int(y) for y in re.findall(r"<lastmod>\s*(\d{4})", sm["body"])]
+        if years:
+            sitemap_latest_lastmod_year = max(years)
 
-    # llms.txt probe (used by the orchestrator for proactive suggestions)
+    # llms.txt probe with soft-404 protection: many CMSs answer any missing
+    # path with HTTP 200 HTML (a custom 404 page or a redirect to the
+    # homepage), which would fake a present llms.txt. Require the final URL
+    # to still be /llms.txt and the body to not be an HTML document.
     llms = fetch(origin + "/llms.txt")
-    llms_present = llms["status"] == 200 and len(llms["body"].strip()) > 0
+    llms_body = (llms["body"] or "").strip()
+    llms_present = (
+        llms["status"] == 200
+        and (llms["final_url"] or "").rstrip("/").endswith("/llms.txt")
+        and len(llms_body) >= 10
+        and not llms_body[:200].lower().lstrip().startswith(("<!doctype", "<html"))
+    )
 
     pages = []
 
@@ -808,6 +902,7 @@ def main():
             feats = extract_features(url, r["body"])
         return {"url": url, "status": r["status"], "final_url": r["final_url"],
                 "redirects": r["redirects"], "elapsed_ms": r["elapsed_ms"],
+                "x_robots_tag": r.get("x_robots") or "",
                 "error": r["error"], "features": feats, "robots_blocked": False}
 
     home = fetch_page(base_url)
@@ -839,6 +934,7 @@ def main():
         "robots": {"status": robots.get("status"), "ai_crawlers_blocked": ai_blocked,
                    "sitemaps_declared": sitemaps},
         "sitemap_found": sitemap_found,
+        "sitemap_latest_lastmod_year": sitemap_latest_lastmod_year,
         "llms_txt_present": llms_present,
         "pages": pages,
     }

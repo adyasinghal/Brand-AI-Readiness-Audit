@@ -1,4 +1,4 @@
-# On-site engagement checks (EN-01 to EN-16)
+# On-site engagement checks (EN-01 to EN-17)
 
 Framing: most AI-referred and search visitors land mid-site with zero context. The audit asks four questions in order: can they orient, can they scan, can they act, can they continue.
 
@@ -35,3 +35,7 @@ Framing: most AI-referred and search visitors land mid-site with zero context. T
 ## Interactivity (EN-16)
 
 - EN-16 (medium) purely static text. Fires when a sample of 3+ pages totalling 1500+ words contains zero forms, inputs, buttons, media embeds (video/audio/canvas/iframe), and details widgets. Mechanism: static walls of text give visitors nothing to do; dwell time and return visits track what a page lets people do, not just read. The suggested action deliberately proposes content-appropriate interactivity (contact form, calculator, product filter, expandable FAQ, demo video) rather than interactivity for its own sake.
+
+## Interruption friction (EN-17)
+
+- EN-17 (low) interstitial or popup patterns in the markup. Fires when any sampled page contains an element whose class name unambiguously marks a popup (interstitial, newsletter-popup, popup-overlay, exit-popup). The token list is deliberately narrow: generic terms like modal or overlay are excluded because ordinary dialog components would false-positive. Mechanism: visitors arriving from an AI answer came for one specific thing; an interposed overlay is the fastest way to send them back. Severity stays low because static markup cannot prove the overlay shows on first paint.

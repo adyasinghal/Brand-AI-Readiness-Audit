@@ -1,11 +1,11 @@
 {
   "site": "127.0.0.1:8765",
-  "audited_at": "2026-09-12T19:36:46Z",
+  "audited_at": "2026-09-12T20:37:21Z",
   "summary": {
-    "total_findings": 32,
+    "total_findings": 33,
     "critical": 1,
     "high": 7,
-    "medium": 19,
+    "medium": 20,
     "low": 5
   },
   "findings": [
@@ -13,7 +13,7 @@
       "id": "F-001",
       "title": "Content appears to require JavaScript rendering (render gap)",
       "severity": "critical",
-      "evidence": "http://127.0.0.1:8765 serves only 50 characters of visible text in raw HTML while loading 5 scripts and mounts an SPA root container. Crawlers and AI fetchers that read raw HTML see an effectively empty page.",
+      "evidence": "http://127.0.0.1:8765 serves only 72 characters of visible text in raw HTML while loading 5 scripts and mounts an SPA root container. Crawlers and AI fetchers that read raw HTML see an effectively empty page.",
       "suggested_action": {
         "summary": "Serve the primary content in the initial HTML: enable server-side rendering, static generation, or prerendering so key facts exist as plain text before any JavaScript runs.",
         "priority": "critical"
@@ -52,7 +52,7 @@
       "id": "F-004",
       "title": "Invalid JSON-LD blocks that fail to parse",
       "severity": "high",
-      "evidence": "1 JSON-LD block(s) across the sample are not valid JSON (for example on http://127.0.0.1:8765/products/widget.html). Invalid blocks are silently ignored by consumers, so the markup delivers no value.",
+      "evidence": "1 JSON-LD block(s) across the sample are not valid JSON (for example on http://127.0.0.1:8765/products/widget.html). First error: Expecting property name enclosed in double quotes at line 1 column 41 (block starts: '{ \"@type\": \"Product\", \"name\": \"Widget\", }'). Invalid blocks are silently ignored by consumers, so the markup delivers no value.",
       "suggested_action": {
         "summary": "Fix the JSON syntax errors (trailing commas, unescaped quotes, comments) and validate with the schema.org validator before deploying.",
         "priority": "high"
@@ -193,6 +193,19 @@
     },
     {
       "id": "F-015",
+      "title": "Hash-based client routing breaks deep-link citations",
+      "severity": "medium",
+      "evidence": "1 page(s) navigate with hash fragments, e.g. http://127.0.0.1:8765 carries 3 links like href=\"#/...\". Fragments are never sent to the server, so AI assistants and search engines cannot cite, crawl, or deep-link those destinations; a shared link lands on the homepage state instead.",
+      "suggested_action": {
+        "summary": "Move to path-based routing (HTML5 History API, e.g. BrowserRouter instead of HashRouter) with server rewrites so every destination has a real, citable URL.",
+        "priority": "medium"
+      },
+      "check": "CR-27",
+      "effort": "high",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-016",
       "title": "Homepage has no H1 heading",
       "severity": "medium",
       "evidence": "The homepage renders no h1 element, so neither visitors nor machines get a one-line statement of what this site is.",
@@ -205,7 +218,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-016",
+      "id": "F-017",
       "title": "No navigation landmark on any sampled page",
       "severity": "medium",
       "evidence": "0/4 pages contain a <nav> element. Visitors who land mid-site (as most AI-referred visitors do) have no persistent way to orient or move to related content.",
@@ -218,10 +231,10 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-017",
+      "id": "F-018",
       "title": "Wall-of-text pages with little visual structure",
       "severity": "medium",
-      "evidence": "On http://127.0.0.1:8765/about.html , 100% of paragraphs exceed 600 characters. Long unbroken prose is skimmed and abandoned by visitors, and key facts buried mid-paragraph are also harder for machines to extract.",
+      "evidence": "On http://127.0.0.1:8765/about.html , 83% of paragraphs exceed 600 characters. Long unbroken prose is skimmed and abandoned by visitors, and key facts buried mid-paragraph are also harder for machines to extract.",
       "suggested_action": {
         "summary": "Break long paragraphs at one idea each, add descriptive H2/H3 subheadings every few paragraphs, and convert enumerable facts into lists or tables.",
         "priority": "medium"
@@ -231,7 +244,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-018",
+      "id": "F-019",
       "title": "Long pages without any subheadings",
       "severity": "medium",
       "evidence": "1 page(s) exceed 800 words with zero H2/H3 subheadings, e.g. http://127.0.0.1:8765/about.html. Nothing lets a reader (or an extractor) jump to the relevant section.",
@@ -244,7 +257,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-019",
+      "id": "F-020",
       "title": "No clear call to action on the homepage",
       "severity": "medium",
       "evidence": "No homepage button or link text matches common action patterns (get started, contact, buy, book, sign up, demo). Visitors who are convinced still have nothing obvious to do next.",
@@ -257,7 +270,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-020",
+      "id": "F-021",
       "title": "No FAQ or self-serve help content detected",
       "severity": "medium",
       "evidence": "No FAQ link, 'frequently asked' section, or FAQPage markup appears anywhere in the sample. Repeat questions cost support effort on-site, and off-site they are exactly the question-shaped content AI assistants prefer to cite.",
@@ -270,7 +283,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-021",
+      "id": "F-022",
       "title": "Dead-end pages with almost no internal links",
       "severity": "medium",
       "evidence": "3 sampled page(s) contain fewer than 3 internal links, e.g. http://127.0.0.1:8765/about.html. A visitor who lands there from an AI answer has nowhere to go next, and crawlers treat weakly linked pages as unimportant.",
@@ -283,7 +296,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-022",
+      "id": "F-023",
       "title": "Duplicate titles across different pages",
       "severity": "medium",
       "evidence": "4 distinct pages share identical titles (e.g. 'Acme'). In search results, AI citations, and browser tabs these pages are indistinguishable, so users cannot pick the right one.",
@@ -296,7 +309,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-023",
+      "id": "F-024",
       "title": "Hub-and-spoke linking: interior pages never link to each other",
       "severity": "medium",
       "evidence": "3/3 sampled interior pages receive no links from any other interior page; they are reachable only via the homepage (e.g. http://127.0.0.1:8765/about.html). A visitor reading one product or article is never guided to a related one, so sessions end after a single page.",
@@ -309,7 +322,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-024",
+      "id": "F-025",
       "title": "Articles lack machine-readable dates",
       "severity": "medium",
       "evidence": "1 blog/news-style pages were sampled but none expose datePublished or dateModified in JSON-LD or article meta tags.",
@@ -322,7 +335,7 @@
       "source_skill": "freshness-corroboration"
     },
     {
-      "id": "F-025",
+      "id": "F-026",
       "title": "No links to independent profiles anywhere on the site",
       "severity": "medium",
       "evidence": "The sample contains no sameAs declarations and no outbound links to independent profile hosts (Wikipedia, Wikidata, LinkedIn, GitHub, review platforms, social). Machines treat facts stated in only one place as weakly corroborated.",
@@ -335,7 +348,7 @@
       "source_skill": "freshness-corroboration"
     },
     {
-      "id": "F-026",
+      "id": "F-027",
       "title": "Brand entity is easy to confuse with same-named entities",
       "severity": "medium",
       "evidence": "The site identifies itself only as 'Acme' with no meta description and no Organization markup. A short name with no category framing invites mistaken-identity answers when other entities share the name.",
@@ -348,7 +361,7 @@
       "source_skill": "freshness-corroboration"
     },
     {
-      "id": "F-027",
+      "id": "F-028",
       "title": "No answer-shaped content: zero question-form headings site-wide",
       "severity": "medium",
       "evidence": "Across 4 pages, not a single H2/H3 is phrased as a question and no FAQPage markup exists. Assistants match user questions against question-shaped headings and lift the paragraph beneath them; a site with none is structurally hard to quote.",
@@ -361,7 +374,7 @@
       "source_skill": "freshness-corroboration"
     },
     {
-      "id": "F-028",
+      "id": "F-029",
       "title": "No Open Graph or Twitter Card metadata anywhere",
       "severity": "low",
       "evidence": "0/4 sampled pages declare og: or twitter: meta tags. Links shared in chat apps and social feeds render without a title, description, or image, and some AI surfaces reuse og:description as the page summary.",
@@ -374,7 +387,7 @@
       "source_skill": "crawl-render-audit"
     },
     {
-      "id": "F-029",
+      "id": "F-030",
       "title": "Page titles outside the useful length range on most pages",
       "severity": "low",
       "evidence": "4/4 titles fall outside 15 to 70 characters (e.g. 'Acme' at 4 chars). Too-short titles waste the strongest ranking and citation field; too-long titles get truncated in results.",
@@ -387,7 +400,7 @@
       "source_skill": "crawl-render-audit"
     },
     {
-      "id": "F-030",
+      "id": "F-031",
       "title": "No breadcrumbs on a site with deep pages",
       "severity": "low",
       "evidence": "2 sampled pages sit two or more levels deep but no breadcrumb navigation or BreadcrumbList markup exists, so mid-site landers cannot see where they are.",
@@ -400,7 +413,7 @@
       "source_skill": "engagement-audit"
     },
     {
-      "id": "F-031",
+      "id": "F-032",
       "title": "Outdated copyright year in the footer",
       "severity": "low",
       "evidence": "The homepage footer shows copyright 2023 while the current year is 2026. A small but visible abandonment signal for both users and machines.",
@@ -413,7 +426,7 @@
       "source_skill": "freshness-corroboration"
     },
     {
-      "id": "F-032",
+      "id": "F-033",
       "title": "No /llms.txt guide for AI crawlers",
       "severity": "low",
       "evidence": "The site does not publish /llms.txt. It is an emerging convention that hands AI crawlers a curated map of the most quotable pages, shaping which content assistants read first.",
@@ -428,6 +441,11 @@
   ],
   "proactive_suggestions": [
     {
+      "title": "Format outbound emails to survive inbox AI summarizers",
+      "priority": "low",
+      "rationale": "The site collects email subscribers, and modern inboxes show AI-generated summaries of long messages built from readable text. Emails whose substance sits in banner images or below filler lose it in the summary. Keep a clean plain-text or multipart fallback, front-load the key offer and call to action in the first lines, and never carry the core message only inside an image."
+    },
+    {
       "title": "Add a quotable one-paragraph brand definition to the homepage and About page",
       "priority": "medium",
       "rationale": "Assistants compose answers from sentences they can lift cleanly. A self-contained paragraph stating who the brand is, what it does, and for whom, repeated consistently on-site and in the Organization description, becomes the sentence machines quote."
@@ -440,12 +458,12 @@
   ],
   "audit_meta": {
     "marketplace": "brand-ai-readiness-audit",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "skill_runs": [
       {
         "skill": "crawl-render-audit",
         "ok": true,
-        "note": "crawl-render-audit: fetched 4 pages, 12 findings"
+        "note": "crawl-render-audit: fetched 4 pages, 13 findings"
       },
       {
         "skill": "freshness-corroboration",
@@ -463,6 +481,15 @@
         "note": "skipped by default; opt in with --external-checks"
       }
     ],
+    "coverage": {
+      "internal_links_discovered_on_homepage": 6,
+      "pages_sampled": 4,
+      "pages_fetched_ok": 4,
+      "pages_blocked_by_robots": 0,
+      "sitemap_found": false,
+      "llms_txt_present": false,
+      "external_checks": "skipped (opt-in)"
+    },
     "pages_sampled": [
       {
         "url": "http://127.0.0.1:8765",

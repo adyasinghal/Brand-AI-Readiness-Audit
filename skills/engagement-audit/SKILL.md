@@ -19,7 +19,7 @@ Diagnosing the second half of the problem: the brand gets found, the visitor arr
    ```
    python3 skills/engagement-audit/scripts/engagement_audit.py --workdir <dir>
    ```
-2. The script evaluates four groups over the sampled pages: orientation (EN-01 to EN-04), scannability (EN-05, EN-06), action paths (EN-07, EN-08), help and continuity (EN-09 to EN-13), cross-linking depth (EN-14, EN-15), and interactivity (EN-16).
+2. The script evaluates four groups over the sampled pages: orientation (EN-01 to EN-04), scannability (EN-05, EN-06), action paths (EN-07, EN-08), help and continuity (EN-09 to EN-13), cross-linking depth (EN-14, EN-15), interactivity (EN-16), and interruption friction from interstitial popups (EN-17).
 
 Check definitions, thresholds (e.g. paragraph-length and word-count cutoffs), and rationale: `references/checks.md`.
 

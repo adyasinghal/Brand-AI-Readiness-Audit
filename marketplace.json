@@ -1,6 +1,6 @@
 {
   "name": "brand-ai-readiness-audit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Audits any website for AI discoverability and on-site engagement problems, producing a structured report of evidence-backed findings and prioritized, mechanism-sound fixes.",
   "skills": [
     { "id": "audit-orchestrator", "path": "skills/audit-orchestrator", "entrypoint": true },

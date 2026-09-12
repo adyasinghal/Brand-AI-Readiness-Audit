@@ -32,7 +32,7 @@ A single JSON report against the schema in `references/report-schema.md`:
 - `summary` with `total_findings` and counts by severity (`critical`, `high`, `medium`, plus `low`)
 - `findings[]`, each with `id`, `title`, `severity`, `evidence`, `suggested_action{summary, priority}`
 - `proactive_suggestions[]` (improvements beyond detected defects)
-- `audit_meta` (skill run status, pages sampled) for transparency
+- `audit_meta` (skill run status, pages sampled, and a coverage block: links discovered, pages sampled versus fetched versus robots-blocked, probe outcomes) so absence of a finding is never mistaken for evidence when coverage was the limit
 
 Severity and priority semantics are defined in `references/severity-and-priority.md`.
 
