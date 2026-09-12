@@ -1,0 +1,486 @@
+{
+  "site": "127.0.0.1:8765",
+  "audited_at": "2026-09-12T19:36:46Z",
+  "summary": {
+    "total_findings": 32,
+    "critical": 1,
+    "high": 7,
+    "medium": 19,
+    "low": 5
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "title": "Content appears to require JavaScript rendering (render gap)",
+      "severity": "critical",
+      "evidence": "http://127.0.0.1:8765 serves only 50 characters of visible text in raw HTML while loading 5 scripts and mounts an SPA root container. Crawlers and AI fetchers that read raw HTML see an effectively empty page.",
+      "suggested_action": {
+        "summary": "Serve the primary content in the initial HTML: enable server-side rendering, static generation, or prerendering so key facts exist as plain text before any JavaScript runs.",
+        "priority": "critical"
+      },
+      "check": "CR-04",
+      "effort": "high",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-002",
+      "title": "Site is served over plain HTTP",
+      "severity": "high",
+      "evidence": "The homepage resolves to http://127.0.0.1:8765 without HTTPS. Many crawlers and browsers downrank or warn on non-HTTPS sites.",
+      "suggested_action": {
+        "summary": "Install TLS and redirect all HTTP traffic to HTTPS with a single 301 redirect.",
+        "priority": "high"
+      },
+      "check": "CR-05",
+      "effort": "medium",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-003",
+      "title": "No JSON-LD structured data on any sampled page",
+      "severity": "high",
+      "evidence": "Crawled 4 pages; 0/4 contain a script[type=application/ld+json] block. Without schema.org markup, machines must guess entity facts from prose.",
+      "suggested_action": {
+        "summary": "Add JSON-LD to key templates: Organization or WebSite on the homepage, and Product, Service, Article, or FAQPage types on the matching page types.",
+        "priority": "high"
+      },
+      "check": "CR-07",
+      "effort": "medium",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-004",
+      "title": "Invalid JSON-LD blocks that fail to parse",
+      "severity": "high",
+      "evidence": "1 JSON-LD block(s) across the sample are not valid JSON (for example on http://127.0.0.1:8765/products/widget.html). Invalid blocks are silently ignored by consumers, so the markup delivers no value.",
+      "suggested_action": {
+        "summary": "Fix the JSON syntax errors (trailing commas, unescaped quotes, comments) and validate with the schema.org validator before deploying.",
+        "priority": "high"
+      },
+      "check": "CR-08",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-005",
+      "title": "No viewport meta tag (mobile rendering broken)",
+      "severity": "high",
+      "evidence": "The homepage lacks <meta name=\"viewport\">, so phones render the desktop layout zoomed out. Most first visits from AI answers and search happen on mobile, and an unreadable first screen is an immediate bounce.",
+      "suggested_action": {
+        "summary": "Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> to every template and verify layouts reflow on small screens.",
+        "priority": "high"
+      },
+      "check": "EN-01",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-006",
+      "title": "No visible way to contact the organization",
+      "severity": "high",
+      "evidence": "Across 4 sampled pages there is no email address, phone number, mailto/tel link, or contact link. Visitors with intent cannot convert, and machines cannot confirm the entity is reachable and real.",
+      "suggested_action": {
+        "summary": "Add a contact page linked from the main navigation and put at least one plain-text contact channel in the footer of every page.",
+        "priority": "high"
+      },
+      "check": "EN-08",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-007",
+      "title": "Newest detectable content date is stale",
+      "severity": "high",
+      "evidence": "The most recent date signal found anywhere on the sampled pages is from 2024 (current year 2026). Assistants asked for current facts will prefer sources that look maintained.",
+      "suggested_action": {
+        "summary": "Refresh cornerstone pages, update their visible and structured dates, and publish something recent; stale sites lose citations to fresher competitors.",
+        "priority": "high"
+      },
+      "check": "FC-02",
+      "effort": "medium",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-008",
+      "title": "No Organization or WebSite identity markup",
+      "severity": "high",
+      "evidence": "No page in the sample declares Organization, LocalBusiness, or WebSite JSON-LD. Machines have no authoritative statement of who this entity is, so brand facts stay fragmented and confusable with similarly named entities.",
+      "suggested_action": {
+        "summary": "Add a single Organization JSON-LD block on the homepage with name, legal name, url, logo, description, and sameAs links to official profiles.",
+        "priority": "high"
+      },
+      "check": "FC-05",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-009",
+      "title": "Meta descriptions missing on most pages",
+      "severity": "medium",
+      "evidence": "4/4 sampled pages lack a meta description, e.g. http://127.0.0.1:8765. Search and AI surfaces then improvise the summary, often badly.",
+      "suggested_action": {
+        "summary": "Write a one-to-two sentence meta description per page that states plainly what the page offers.",
+        "priority": "medium"
+      },
+      "check": "CR-10",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-010",
+      "title": "No canonical URLs declared",
+      "severity": "medium",
+      "evidence": "0/4 sampled pages declare rel=canonical. Parameter and duplicate URLs can then split ranking and citation signals.",
+      "suggested_action": {
+        "summary": "Add a rel=canonical link on every page pointing to its preferred URL.",
+        "priority": "medium"
+      },
+      "check": "CR-12",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-011",
+      "title": "Missing lang attribute on <html>",
+      "severity": "medium",
+      "evidence": "The homepage <html> element has no lang attribute, so language detection is left to guesswork for crawlers and screen readers.",
+      "suggested_action": {
+        "summary": "Set the lang attribute (for example lang=\"en\") on the html element of every template.",
+        "priority": "medium"
+      },
+      "check": "CR-13",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-012",
+      "title": "Most images have no alt text",
+      "severity": "medium",
+      "evidence": "6/6 images across the sample lack alt text. Facts carried only in images (banners, infographics, menus) are invisible to text-based extraction.",
+      "suggested_action": {
+        "summary": "Add descriptive alt text to informative images and restate any image-only facts (prices, hours, claims) as plain HTML text.",
+        "priority": "medium"
+      },
+      "check": "CR-14",
+      "effort": "medium",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-013",
+      "title": "No XML sitemap discovered",
+      "severity": "medium",
+      "evidence": "No Sitemap directive in robots.txt and http://127.0.0.1:8765/sitemap.xml returned status 404. Crawlers must rely purely on link discovery, so deep pages may never be found.",
+      "suggested_action": {
+        "summary": "Publish an XML sitemap listing canonical URLs and reference it from robots.txt.",
+        "priority": "medium"
+      },
+      "check": "CR-16",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-014",
+      "title": "No semantic content landmarks (main or article) on any page",
+      "severity": "medium",
+      "evidence": "0/4 sampled pages wrap their primary content in <main> or <article>. Extractors cannot cleanly separate the content that matters from navigation, sidebars, and footers, which degrades what search snippets and AI answers quote.",
+      "suggested_action": {
+        "summary": "Wrap the primary content of every template in <main> (and articles in <article>); keep navigation and boilerplate outside it.",
+        "priority": "medium"
+      },
+      "check": "CR-17",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-015",
+      "title": "Homepage has no H1 heading",
+      "severity": "medium",
+      "evidence": "The homepage renders no h1 element, so neither visitors nor machines get a one-line statement of what this site is.",
+      "suggested_action": {
+        "summary": "Add a single descriptive H1 that states what the brand offers and for whom; use exactly one H1 per page.",
+        "priority": "medium"
+      },
+      "check": "EN-02",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-016",
+      "title": "No navigation landmark on any sampled page",
+      "severity": "medium",
+      "evidence": "0/4 pages contain a <nav> element. Visitors who land mid-site (as most AI-referred visitors do) have no persistent way to orient or move to related content.",
+      "suggested_action": {
+        "summary": "Wrap the primary menu in a <nav> element present on every page, with links to the handful of destinations that matter most.",
+        "priority": "medium"
+      },
+      "check": "EN-04",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-017",
+      "title": "Wall-of-text pages with little visual structure",
+      "severity": "medium",
+      "evidence": "On http://127.0.0.1:8765/about.html , 100% of paragraphs exceed 600 characters. Long unbroken prose is skimmed and abandoned by visitors, and key facts buried mid-paragraph are also harder for machines to extract.",
+      "suggested_action": {
+        "summary": "Break long paragraphs at one idea each, add descriptive H2/H3 subheadings every few paragraphs, and convert enumerable facts into lists or tables.",
+        "priority": "medium"
+      },
+      "check": "EN-05",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-018",
+      "title": "Long pages without any subheadings",
+      "severity": "medium",
+      "evidence": "1 page(s) exceed 800 words with zero H2/H3 subheadings, e.g. http://127.0.0.1:8765/about.html. Nothing lets a reader (or an extractor) jump to the relevant section.",
+      "suggested_action": {
+        "summary": "Add question-style H2 subheadings that name what each section answers; they double as anchors AI assistants can quote.",
+        "priority": "medium"
+      },
+      "check": "EN-06",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-019",
+      "title": "No clear call to action on the homepage",
+      "severity": "medium",
+      "evidence": "No homepage button or link text matches common action patterns (get started, contact, buy, book, sign up, demo). Visitors who are convinced still have nothing obvious to do next.",
+      "suggested_action": {
+        "summary": "Place one primary, verb-led call to action above the fold and repeat it at the end of the page; make the next step unmissable.",
+        "priority": "medium"
+      },
+      "check": "EN-07",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-020",
+      "title": "No FAQ or self-serve help content detected",
+      "severity": "medium",
+      "evidence": "No FAQ link, 'frequently asked' section, or FAQPage markup appears anywhere in the sample. Repeat questions cost support effort on-site, and off-site they are exactly the question-shaped content AI assistants prefer to cite.",
+      "suggested_action": {
+        "summary": "Publish an FAQ answering the ten questions customers actually ask, in plain question-and-answer format, and mark it up with FAQPage JSON-LD.",
+        "priority": "medium"
+      },
+      "check": "EN-09",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-021",
+      "title": "Dead-end pages with almost no internal links",
+      "severity": "medium",
+      "evidence": "3 sampled page(s) contain fewer than 3 internal links, e.g. http://127.0.0.1:8765/about.html. A visitor who lands there from an AI answer has nowhere to go next, and crawlers treat weakly linked pages as unimportant.",
+      "suggested_action": {
+        "summary": "Add related-content links and a persistent header/footer to every page so both visitors and crawlers can continue somewhere relevant.",
+        "priority": "medium"
+      },
+      "check": "EN-11",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-022",
+      "title": "Duplicate titles across different pages",
+      "severity": "medium",
+      "evidence": "4 distinct pages share identical titles (e.g. 'Acme'). In search results, AI citations, and browser tabs these pages are indistinguishable, so users cannot pick the right one.",
+      "suggested_action": {
+        "summary": "Write a unique, specific title per page that names its distinct topic.",
+        "priority": "medium"
+      },
+      "check": "EN-12",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-023",
+      "title": "Hub-and-spoke linking: interior pages never link to each other",
+      "severity": "medium",
+      "evidence": "3/3 sampled interior pages receive no links from any other interior page; they are reachable only via the homepage (e.g. http://127.0.0.1:8765/about.html). A visitor reading one product or article is never guided to a related one, so sessions end after a single page.",
+      "suggested_action": {
+        "summary": "Add contextual related-content links between sibling pages (related products, next article, see also blocks) so every page hands the visitor a relevant next step.",
+        "priority": "medium"
+      },
+      "check": "EN-14",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-024",
+      "title": "Articles lack machine-readable dates",
+      "severity": "medium",
+      "evidence": "1 blog/news-style pages were sampled but none expose datePublished or dateModified in JSON-LD or article meta tags.",
+      "suggested_action": {
+        "summary": "Add Article JSON-LD with datePublished and dateModified to every post template.",
+        "priority": "medium"
+      },
+      "check": "FC-03",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-025",
+      "title": "No links to independent profiles anywhere on the site",
+      "severity": "medium",
+      "evidence": "The sample contains no sameAs declarations and no outbound links to independent profile hosts (Wikipedia, Wikidata, LinkedIn, GitHub, review platforms, social). Machines treat facts stated in only one place as weakly corroborated.",
+      "suggested_action": {
+        "summary": "Establish and interlink official profiles (LinkedIn, Wikidata, relevant directories and review platforms) and list them in the Organization sameAs array so machines can triangulate the same facts across independent sources.",
+        "priority": "medium"
+      },
+      "check": "FC-06",
+      "effort": "medium",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-026",
+      "title": "Brand entity is easy to confuse with same-named entities",
+      "severity": "medium",
+      "evidence": "The site identifies itself only as 'Acme' with no meta description and no Organization markup. A short name with no category framing invites mistaken-identity answers when other entities share the name.",
+      "suggested_action": {
+        "summary": "State the category explicitly everywhere the brand is named: title pattern 'Brand - what it is', a meta description that says what the brand does, and Organization JSON-LD with a description and disambiguating sameAs links.",
+        "priority": "medium"
+      },
+      "check": "FC-08",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-027",
+      "title": "No answer-shaped content: zero question-form headings site-wide",
+      "severity": "medium",
+      "evidence": "Across 4 pages, not a single H2/H3 is phrased as a question and no FAQPage markup exists. Assistants match user questions against question-shaped headings and lift the paragraph beneath them; a site with none is structurally hard to quote.",
+      "suggested_action": {
+        "summary": "Rephrase key subheadings as the questions users actually ask (How much does X cost? How does Y work?) and answer each in the first sentence below it.",
+        "priority": "medium"
+      },
+      "check": "FC-11",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-028",
+      "title": "No Open Graph or Twitter Card metadata anywhere",
+      "severity": "low",
+      "evidence": "0/4 sampled pages declare og: or twitter: meta tags. Links shared in chat apps and social feeds render without a title, description, or image, and some AI surfaces reuse og:description as the page summary.",
+      "suggested_action": {
+        "summary": "Add og:title, og:description, and og:image to every template (Twitter Cards can mirror the same values).",
+        "priority": "low"
+      },
+      "check": "CR-19",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-029",
+      "title": "Page titles outside the useful length range on most pages",
+      "severity": "low",
+      "evidence": "4/4 titles fall outside 15 to 70 characters (e.g. 'Acme' at 4 chars). Too-short titles waste the strongest ranking and citation field; too-long titles get truncated in results.",
+      "suggested_action": {
+        "summary": "Rewrite titles to roughly 15 to 70 characters that state the page topic and end with the brand name.",
+        "priority": "low"
+      },
+      "check": "CR-21",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-030",
+      "title": "No breadcrumbs on a site with deep pages",
+      "severity": "low",
+      "evidence": "2 sampled pages sit two or more levels deep but no breadcrumb navigation or BreadcrumbList markup exists, so mid-site landers cannot see where they are.",
+      "suggested_action": {
+        "summary": "Add breadcrumb navigation with BreadcrumbList JSON-LD on all pages below the top level.",
+        "priority": "low"
+      },
+      "check": "EN-13",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-031",
+      "title": "Outdated copyright year in the footer",
+      "severity": "low",
+      "evidence": "The homepage footer shows copyright 2023 while the current year is 2026. A small but visible abandonment signal for both users and machines.",
+      "suggested_action": {
+        "summary": "Render the copyright year dynamically so it always shows the current year.",
+        "priority": "low"
+      },
+      "check": "FC-04",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-032",
+      "title": "No /llms.txt guide for AI crawlers",
+      "severity": "low",
+      "evidence": "The site does not publish /llms.txt. It is an emerging convention that hands AI crawlers a curated map of the most quotable pages, shaping which content assistants read first.",
+      "suggested_action": {
+        "summary": "Publish /llms.txt at the site root: a short markdown file linking the pages that best define the brand, products, and key facts.",
+        "priority": "low"
+      },
+      "check": "FC-12",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    }
+  ],
+  "proactive_suggestions": [
+    {
+      "title": "Add a quotable one-paragraph brand definition to the homepage and About page",
+      "priority": "medium",
+      "rationale": "Assistants compose answers from sentences they can lift cleanly. A self-contained paragraph stating who the brand is, what it does, and for whom, repeated consistently on-site and in the Organization description, becomes the sentence machines quote."
+    },
+    {
+      "title": "Seed and maintain presence on independent community and review platforms",
+      "priority": "low",
+      "rationale": "Assistants weight facts corroborated across unrelated sources. Accurate, consistent listings and organic mentions on community platforms (per contest scope: Reddit, Quora, review sites) reinforce the same facts the site states, making them safer for an assistant to repeat."
+    }
+  ],
+  "audit_meta": {
+    "marketplace": "brand-ai-readiness-audit",
+    "version": "1.1.0",
+    "skill_runs": [
+      {
+        "skill": "crawl-render-audit",
+        "ok": true,
+        "note": "crawl-render-audit: fetched 4 pages, 12 findings"
+      },
+      {
+        "skill": "freshness-corroboration",
+        "ok": true,
+        "note": "freshness-corroboration: 8 findings"
+      },
+      {
+        "skill": "engagement-audit",
+        "ok": true,
+        "note": "engagement-audit: 12 findings"
+      },
+      {
+        "skill": "external-footprint-audit",
+        "ok": true,
+        "note": "skipped by default; opt in with --external-checks"
+      }
+    ],
+    "pages_sampled": [
+      {
+        "url": "http://127.0.0.1:8765",
+        "status": 200
+      },
+      {
+        "url": "http://127.0.0.1:8765/about.html",
+        "status": 200
+      },
+      {
+        "url": "http://127.0.0.1:8765/products/widget.html",
+        "status": 200
+      },
+      {
+        "url": "http://127.0.0.1:8765/blog/2024/launch.html",
+        "status": 200
+      }
+    ],
+    "note": "Sample generated against a local fixture site seeded with known defects; run the entrypoint against any real URL to produce a live report."
+  }
+}

@@ -1,0 +1,265 @@
+{
+  "site": "example.com",
+  "audited_at": "2026-09-12T19:45:28Z",
+  "summary": {
+    "total_findings": 16,
+    "critical": 0,
+    "high": 3,
+    "medium": 10,
+    "low": 3
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "title": "No JSON-LD structured data on any sampled page",
+      "severity": "high",
+      "evidence": "Crawled 1 pages; 0/1 contain a script[type=application/ld+json] block. Without schema.org markup, machines must guess entity facts from prose.",
+      "suggested_action": {
+        "summary": "Add JSON-LD to key templates: Organization or WebSite on the homepage, and Product, Service, Article, or FAQPage types on the matching page types.",
+        "priority": "high"
+      },
+      "check": "CR-07",
+      "effort": "medium",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-002",
+      "title": "No visible way to contact the organization",
+      "severity": "high",
+      "evidence": "Across 1 sampled pages there is no email address, phone number, mailto/tel link, or contact link. Visitors with intent cannot convert, and machines cannot confirm the entity is reachable and real.",
+      "suggested_action": {
+        "summary": "Add a contact page linked from the main navigation and put at least one plain-text contact channel in the footer of every page.",
+        "priority": "high"
+      },
+      "check": "EN-08",
+      "effort": "low",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-003",
+      "title": "No Organization or WebSite identity markup",
+      "severity": "high",
+      "evidence": "No page in the sample declares Organization, LocalBusiness, or WebSite JSON-LD. Machines have no authoritative statement of who this entity is, so brand facts stay fragmented and confusable with similarly named entities.",
+      "suggested_action": {
+        "summary": "Add a single Organization JSON-LD block on the homepage with name, legal name, url, logo, description, and sameAs links to official profiles.",
+        "priority": "high"
+      },
+      "check": "FC-05",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-004",
+      "title": "Meta descriptions missing on most pages",
+      "severity": "medium",
+      "evidence": "1/1 sampled pages lack a meta description, e.g. https://example.com. Search and AI surfaces then improvise the summary, often badly.",
+      "suggested_action": {
+        "summary": "Write a one-to-two sentence meta description per page that states plainly what the page offers.",
+        "priority": "medium"
+      },
+      "check": "CR-10",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-005",
+      "title": "No canonical URLs declared",
+      "severity": "medium",
+      "evidence": "0/1 sampled pages declare rel=canonical. Parameter and duplicate URLs can then split ranking and citation signals.",
+      "suggested_action": {
+        "summary": "Add a rel=canonical link on every page pointing to its preferred URL.",
+        "priority": "medium"
+      },
+      "check": "CR-12",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-006",
+      "title": "No XML sitemap discovered",
+      "severity": "medium",
+      "evidence": "No Sitemap directive in robots.txt and https://example.com/sitemap.xml returned status 404. Crawlers must rely purely on link discovery, so deep pages may never be found.",
+      "suggested_action": {
+        "summary": "Publish an XML sitemap listing canonical URLs and reference it from robots.txt.",
+        "priority": "medium"
+      },
+      "check": "CR-16",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-007",
+      "title": "No semantic content landmarks (main or article) on any page",
+      "severity": "medium",
+      "evidence": "0/1 sampled pages wrap their primary content in <main> or <article>. Extractors cannot cleanly separate the content that matters from navigation, sidebars, and footers, which degrades what search snippets and AI answers quote.",
+      "suggested_action": {
+        "summary": "Wrap the primary content of every template in <main> (and articles in <article>); keep navigation and boilerplate outside it.",
+        "priority": "medium"
+      },
+      "check": "CR-17",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-008",
+      "title": "No navigation landmark on any sampled page",
+      "severity": "medium",
+      "evidence": "0/1 pages contain a <nav> element. Visitors who land mid-site (as most AI-referred visitors do) have no persistent way to orient or move to related content.",
+      "suggested_action": {
+        "summary": "Wrap the primary menu in a <nav> element present on every page, with links to the handful of destinations that matter most.",
+        "priority": "medium"
+      },
+      "check": "EN-04",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-009",
+      "title": "No FAQ or self-serve help content detected",
+      "severity": "medium",
+      "evidence": "No FAQ link, 'frequently asked' section, or FAQPage markup appears anywhere in the sample. Repeat questions cost support effort on-site, and off-site they are exactly the question-shaped content AI assistants prefer to cite.",
+      "suggested_action": {
+        "summary": "Publish an FAQ answering the ten questions customers actually ask, in plain question-and-answer format, and mark it up with FAQPage JSON-LD.",
+        "priority": "medium"
+      },
+      "check": "EN-09",
+      "effort": "medium",
+      "source_skill": "engagement-audit"
+    },
+    {
+      "id": "F-010",
+      "title": "No publication or update dates found anywhere in the sample",
+      "severity": "medium",
+      "evidence": "Across 1 pages, no machine-readable dates (datePublished, dateModified, article meta tags) and no visible textual dates were detected. Retrieval systems cannot tell whether any fact is current.",
+      "suggested_action": {
+        "summary": "Stamp content pages with a visible last-updated date and mirror it in JSON-LD dateModified so machines can verify freshness.",
+        "priority": "medium"
+      },
+      "check": "FC-01",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-011",
+      "title": "No links to independent profiles anywhere on the site",
+      "severity": "medium",
+      "evidence": "The sample contains no sameAs declarations and no outbound links to independent profile hosts (Wikipedia, Wikidata, LinkedIn, GitHub, review platforms, social). Machines treat facts stated in only one place as weakly corroborated.",
+      "suggested_action": {
+        "summary": "Establish and interlink official profiles (LinkedIn, Wikidata, relevant directories and review platforms) and list them in the Organization sameAs array so machines can triangulate the same facts across independent sources.",
+        "priority": "medium"
+      },
+      "check": "FC-06",
+      "effort": "medium",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-012",
+      "title": "Brand entity is easy to confuse with same-named entities",
+      "severity": "medium",
+      "evidence": "The site identifies itself only as 'Example Domain' with no meta description and no Organization markup. A short name with no category framing invites mistaken-identity answers when other entities share the name.",
+      "suggested_action": {
+        "summary": "State the category explicitly everywhere the brand is named: title pattern 'Brand - what it is', a meta description that says what the brand does, and Organization JSON-LD with a description and disambiguating sameAs links.",
+        "priority": "medium"
+      },
+      "check": "FC-08",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-013",
+      "title": "No discoverable About page",
+      "severity": "medium",
+      "evidence": "Neither the sampled URLs nor any internal link points to an About page. Assistants asked 'who is example.com' have no canonical self-description to quote.",
+      "suggested_action": {
+        "summary": "Publish an About page with a plain-text description of who the organization is, what it does, and for whom, written so a single paragraph can be quoted verbatim.",
+        "priority": "medium"
+      },
+      "check": "FC-10",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    },
+    {
+      "id": "F-014",
+      "title": "No Open Graph or Twitter Card metadata anywhere",
+      "severity": "low",
+      "evidence": "0/1 sampled pages declare og: or twitter: meta tags. Links shared in chat apps and social feeds render without a title, description, or image, and some AI surfaces reuse og:description as the page summary.",
+      "suggested_action": {
+        "summary": "Add og:title, og:description, and og:image to every template (Twitter Cards can mirror the same values).",
+        "priority": "low"
+      },
+      "check": "CR-19",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-015",
+      "title": "Page titles outside the useful length range on most pages",
+      "severity": "low",
+      "evidence": "1/1 titles fall outside 15 to 70 characters (e.g. 'Example Domain' at 14 chars). Too-short titles waste the strongest ranking and citation field; too-long titles get truncated in results.",
+      "suggested_action": {
+        "summary": "Rewrite titles to roughly 15 to 70 characters that state the page topic and end with the brand name.",
+        "priority": "low"
+      },
+      "check": "CR-21",
+      "effort": "low",
+      "source_skill": "crawl-render-audit"
+    },
+    {
+      "id": "F-016",
+      "title": "No /llms.txt guide for AI crawlers",
+      "severity": "low",
+      "evidence": "The site does not publish /llms.txt. It is an emerging convention that hands AI crawlers a curated map of the most quotable pages, shaping which content assistants read first.",
+      "suggested_action": {
+        "summary": "Publish /llms.txt at the site root: a short markdown file linking the pages that best define the brand, products, and key facts.",
+        "priority": "low"
+      },
+      "check": "FC-12",
+      "effort": "low",
+      "source_skill": "freshness-corroboration"
+    }
+  ],
+  "proactive_suggestions": [
+    {
+      "title": "Add a quotable one-paragraph brand definition to the homepage and About page",
+      "priority": "medium",
+      "rationale": "Assistants compose answers from sentences they can lift cleanly. A self-contained paragraph stating who the brand is, what it does, and for whom, repeated consistently on-site and in the Organization description, becomes the sentence machines quote."
+    },
+    {
+      "title": "Seed and maintain presence on independent community and review platforms",
+      "priority": "low",
+      "rationale": "Assistants weight facts corroborated across unrelated sources. Accurate, consistent listings and organic mentions on community platforms (per contest scope: Reddit, Quora, review sites) reinforce the same facts the site states, making them safer for an assistant to repeat."
+    }
+  ],
+  "audit_meta": {
+    "marketplace": "brand-ai-readiness-audit",
+    "version": "1.1.0",
+    "skill_runs": [
+      {
+        "skill": "crawl-render-audit",
+        "ok": true,
+        "note": "crawl-render-audit: fetched 1 pages, 7 findings"
+      },
+      {
+        "skill": "freshness-corroboration",
+        "ok": true,
+        "note": "freshness-corroboration: 6 findings"
+      },
+      {
+        "skill": "engagement-audit",
+        "ok": true,
+        "note": "engagement-audit: 3 findings"
+      },
+      {
+        "skill": "external-footprint-audit",
+        "ok": true,
+        "note": "skipped by default; opt in with --external-checks"
+      }
+    ],
+    "pages_sampled": [
+      {
+        "url": "https://example.com",
+        "status": 200
+      }
+    ]
+  }
+}
