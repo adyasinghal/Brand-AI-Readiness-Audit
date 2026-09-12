@@ -1,0 +1,25 @@
+---
+name: engagement-audit
+description: Builds a site graph from crawled pages and audits on-site engagement --
+  orphan pages, dead ends, navigation structure, and breadcrumb consistency
+  between visible markup and structured data. Called by audit-orchestrator; not
+  intended to be invoked standalone.
+license: MIT
+---
+
+# Engagement Audit
+
+## When to use
+Called by audit-orchestrator as part of the dependent analysis batch, so it
+overlaps external-analysis work instead of trailing it.
+
+## Inputs
+`AuditArtifacts`, the `site_graph` intermediate artifact, and the rendering
+`SkillResult` (`rendering_result`).
+
+## Procedure
+`build_site_graph` runs in the independent batch; `analyze_engagement` runs in
+the dependent batch. See `references/engagement-checklist.md`.
+
+## Output
+A `SkillResult` with engagement findings and metrics.
