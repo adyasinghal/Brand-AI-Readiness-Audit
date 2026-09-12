@@ -89,6 +89,35 @@ The orchestrator script supports standard Unix stream piping:
 cat /tmp/audit_runs/*.json | python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py https://example.com > /tmp/final_report.json
 ```
 
+### Testing Individual Sub-Skills in Isolation
+
+Each sub-skill script is completely self-contained and outputs validated JSON directly to `stdout`. Evaluators can spot-check any individual audit pillar in isolation:
+
+```bash
+# 1. Machine Access Audit (robots.txt permissions, sitemaps, CSR render gaps)
+python3 skills/crawl-render-audit/scripts/check_access.py https://nytimes.com
+
+# 2. Semantic Structured Data Audit (Schema.org baseline & recursive @graph unpacking)
+python3 skills/semantic-data-audit/scripts/parse_structured_data.py https://stripe.com
+
+# 3. Mechanical Entity Trust Audit (Brand naming Title/H1/OG harmony & sameAs links)
+python3 skills/entity-authority-audit/scripts/check_entity_trust.py https://example.com
+
+# 4. Visitor Retention & Engagement Friction (Viewport meta & email AI summarizers)
+python3 skills/engagement-friction-audit/scripts/check_friction.py https://stripe.com
+```
+
+### Benchmark Evaluation Targets
+
+To evaluate pattern generalization across diverse web architectures, test against these representative archetypes:
+
+| Archetype | Sample URL | Target Evaluation Stress-Test |
+| :--- | :--- | :--- |
+| **Aggressive AI Bot Blocker** | `https://nytimes.com` | Deterministically flags `Disallow: /` for 11 AI crawlers (`GPTBot`, `ClaudeBot`, `PerplexityBot`) with remediation snippet |
+| **Clean Baseline Benchmark** | `https://stripe.com` | 0 false-positive defects; surfaces proactive Appendix F email AI summarizer recommendations |
+| **Missing Baseline Schema** | `https://example.com` | Detects missing `Organization`/`WebSite` JSON-LD, 404 sitemap, and recommends `/llms.txt` |
+| **Single-Page Application (CSR)** | `https://react.dev` | Audits raw SSR HTML payload vs minified JS chunks to ensure AI search bots without JS engines can extract facts |
+
 ---
 
 ## 3. The Five Core Audit Pillars
