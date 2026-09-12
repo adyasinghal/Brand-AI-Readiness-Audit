@@ -123,6 +123,22 @@ def audit_sitemap(base_url, robots_content):
                 "expected_outcome": "Immediate discovery of new and updated pages by AI bots.",
             }
         })
+    # Guard against soft-404: single-page applications or web servers returning HTML for /sitemap.xml
+    stripped_lower = xml_text.strip().lower()
+    if stripped_lower.startswith(("<!doctype", "<html")):
+        findings.append({
+            "category": "crawlability",
+            "title": "Sitemap returns HTML document instead of XML (soft-404)",
+            "severity": "medium",
+            "evidence": f"Target sitemap endpoint {sitemap_url} responded with an HTML webpage instead of XML markup.",
+            "mechanism": "AI search crawlers expect valid XML at sitemap endpoints; HTML responses prevent canonical URL discovery.",
+            "suggested_action": {
+                "summary": "Publish a valid XML sitemap at /sitemap.xml.",
+                "priority": "medium",
+                "implementation_detail": f"Configure server routing so {sitemap_url} serves valid XML instead of an HTML catch-all page.",
+                "expected_outcome": "Automated discovery of canonical page inventory by AI crawlers.",
+            }
+        })
         return findings, proactive
 
     try:
