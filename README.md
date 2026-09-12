@@ -59,55 +59,49 @@ brand-ai-readiness-audit/
 
 All scripts are 100% self-contained Python 3 standard library programs. Zero `pip install` or external runtimes required.
 
-### End-to-End Orchestrated Execution
+### 1. The Full End-to-End Audit (Single Command)
+
+Run this command block directly in the repository root (replace `https://example.com` with any target URL):
 
 ```bash
-# 1. Prepare isolated scratch directory
-mkdir -p /tmp/audit_runs/
-rm -f /tmp/audit_runs/*
+TARGET="https://example.com"
+rm -f /tmp/audit_runs/* && mkdir -p /tmp/audit_runs
 
-# 2. Execute Stage 1: Machine Access Audit
-python3 skills/crawl-render-audit/scripts/check_access.py https://example.com > /tmp/audit_runs/01_access.json
+python3 skills/crawl-render-audit/scripts/check_access.py "$TARGET" > /tmp/audit_runs/01_access.json
+python3 skills/semantic-data-audit/scripts/parse_structured_data.py "$TARGET" > /tmp/audit_runs/02_semantic.json
+python3 skills/entity-authority-audit/scripts/check_entity_trust.py "$TARGET" > /tmp/audit_runs/03_entity.json
+python3 skills/engagement-friction-audit/scripts/check_friction.py "$TARGET" > /tmp/audit_runs/05_friction.json
 
-# 3. Execute Stage 2: Semantic Structured Data Audit (Reuses cached HTML)
-python3 skills/semantic-data-audit/scripts/parse_structured_data.py https://example.com > /tmp/audit_runs/02_semantic.json
-
-# 4. Execute Stage 3: Mechanical Entity Trust Audit (Reuses cached HTML)
-python3 skills/entity-authority-audit/scripts/check_entity_trust.py https://example.com > /tmp/audit_runs/03_entity_mechanical.json
-
-# 5. Execute Stage 4: Visitor Retention & Engagement Friction Audit (Reuses cached HTML)
-python3 skills/engagement-friction-audit/scripts/check_friction.py https://example.com > /tmp/audit_runs/05_friction.json
-
-# 6. Merge, Enforce Invariant I-1, and Emit Final Report
-python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py https://example.com /tmp/audit_runs/*.json > /tmp/final_report.json
+# Merge, enforce Invariant I-1, and print validated report to stdout
+python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py "$TARGET" /tmp/audit_runs/*.json
 ```
 
-### Dual-Mode Pipe Support
+### 2. Testing Individual Sub-Skills in Isolation
+
+Each sub-skill script is completely self-contained and outputs validated JSON directly to `stdout`. Evaluators can spot-check any individual audit pillar in isolation:
+
+```bash
+# Pillar 1: Machine Access & AI Crawlers (robots.txt permissions, sitemaps, CSR render gaps)
+python3 skills/crawl-render-audit/scripts/check_access.py https://nytimes.com
+
+# Pillar 2: Schema.org Structured Data & @graph Extraction
+python3 skills/semantic-data-audit/scripts/parse_structured_data.py https://stripe.com
+
+# Pillar 3: Entity Trust & Brand Consistency (Title/H1/OG harmony & sameAs links)
+python3 skills/entity-authority-audit/scripts/check_entity_trust.py https://example.com
+
+# Pillar 4: Engagement Friction, Viewport Scaling & Email AI Summarizers
+python3 skills/engagement-friction-audit/scripts/check_friction.py https://stripe.com
+```
+
+### 3. Dual-Mode Unix Pipe Support
 
 The orchestrator script supports standard Unix stream piping:
 ```bash
 cat /tmp/audit_runs/*.json | python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py https://example.com > /tmp/final_report.json
 ```
 
-### Testing Individual Sub-Skills in Isolation
-
-Each sub-skill script is completely self-contained and outputs validated JSON directly to `stdout`. Evaluators can spot-check any individual audit pillar in isolation:
-
-```bash
-# 1. Machine Access Audit (robots.txt permissions, sitemaps, CSR render gaps)
-python3 skills/crawl-render-audit/scripts/check_access.py https://nytimes.com
-
-# 2. Semantic Structured Data Audit (Schema.org baseline & recursive @graph unpacking)
-python3 skills/semantic-data-audit/scripts/parse_structured_data.py https://stripe.com
-
-# 3. Mechanical Entity Trust Audit (Brand naming Title/H1/OG harmony & sameAs links)
-python3 skills/entity-authority-audit/scripts/check_entity_trust.py https://example.com
-
-# 4. Visitor Retention & Engagement Friction (Viewport meta & email AI summarizers)
-python3 skills/engagement-friction-audit/scripts/check_friction.py https://stripe.com
-```
-
-### Benchmark Evaluation Targets
+### 4. Benchmark Evaluation Targets
 
 To evaluate pattern generalization across diverse web architectures, test against these representative archetypes:
 
