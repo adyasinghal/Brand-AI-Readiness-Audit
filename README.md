@@ -289,3 +289,6 @@ python3 -m pytest tests/ -q
 - Runtime dependencies are in `requirements.txt`; test/render dependencies are in `requirements-dev.txt`.
 - Runtime telemetry reports both the Python `tracemalloc` peak and a best-effort parent-process RSS measurement. These are distinct metrics; Chromium child-process RSS is not claimed unless separately available.
 - The package is intentionally read-only and excludes generated cache artifacts from release archives.
+### INstructions to run: 
+1. make venv, install requirements.
+2. run python skills/audit-orchestrator/scripts/run_audit.py https://example.com > audit-report.json
