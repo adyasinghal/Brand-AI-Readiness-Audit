@@ -41,7 +41,7 @@ def validate_report(report: dict) -> dict:
     kept_findings = _validate_finding_like(report.get("findings", []), warnings, "finding")
     kept_recommendations = _validate_finding_like(report.get("recommendations", []), warnings, "recommendation")
 
-    for req in ("site", "audited_at", "summary", "coverage"):
+    for req in ("site", "audited_at", "summary", "coverage", "execution_status", "limitations", "confidence"):
         if req not in report:
             warnings.append(f"Missing required report field: {req}")
 

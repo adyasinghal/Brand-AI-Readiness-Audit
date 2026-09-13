@@ -34,6 +34,7 @@ from merge_findings import merge_findings
 from prioritize_findings import prioritize_findings
 from generate_recommendations import generate_recommendations
 from validate_report import validate_report
+from execution_summary import derive_execution_status, derive_limitations, overall_confidence
 
 from analyze_crawlability import analyze_crawlability
 from analyze_rendering import analyze_rendering
@@ -158,10 +159,21 @@ def run_audit(site_url: str, limits=DEFAULT_LIMITS, allow_private_targets: bool 
     memory_peak_mb = instrumentation.stop_memory_tracking_mb()
     telemetry = instrumentation.as_dict(memory_peak_mb)
 
+    acq_coverage = artifacts.acquisition_metadata.get("coverage", {})
     coverage = {
-        "pages_discovered": len(artifacts.pages),
-        "pages_analyzed": len(artifacts.pages),
+        # Factual, non-equated coverage counts (Round-3 handout, Priority 2 #3):
+        # discovered/fetched/analyzed are different numbers and must not collapse
+        # into one len(pages) reused three times.
+        "pages_discovered": acq_coverage.get("urls_discovered", len(artifacts.pages)),
+        "pages_fetched_attempted": acq_coverage.get("urls_fetched_attempted", len(artifacts.pages)),
+        "pages_fetched_ok": acq_coverage.get("urls_fetched_ok", len(artifacts.pages)),
+        "pages_analyzed": acq_coverage.get("urls_analyzed", len(artifacts.pages)),
+        "pages_blocked": acq_coverage.get("urls_blocked", 0),
+        "pages_timed_out": acq_coverage.get("urls_timed_out", 0),
+        "pages_failed_other": acq_coverage.get("urls_failed_other", 0),
+        "pages_never_attempted": acq_coverage.get("urls_never_attempted", 0),
         "pages_skipped": telemetry["pages_skipped"],
+        "skip_reason_counts": acq_coverage.get("skip_reason_counts", {}),
         "rendered_pages": independent["rendering"].get("metrics", {}).get("rendered_pages", 0),
         "external_claims_checked": dependent["corroboration"].get("metrics", {}).get("claims_checked", 0),
         "external_footprint_queries": dependent["footprint"].get("metrics", {}).get("queries_attempted", 0),
@@ -183,6 +195,16 @@ def run_audit(site_url: str, limits=DEFAULT_LIMITS, allow_private_targets: bool 
         "findings": prioritized,
         "recommendations": recommendations,
     }
+
+    # Never-empty, never-misleading report fields (Round-3 handout item 6): every
+    # audit -- success, degraded, or deadline-truncated -- gets a real
+    # execution_status, a limitations list derived from actual telemetry (not
+    # boilerplate), and an overall confidence score with its method shown.
+    execution_status = derive_execution_status(deadline, skill_results, telemetry["worker_timeout_events"])
+    report["execution_status"] = execution_status
+    report["limitations"] = derive_limitations(artifacts, capabilities, coverage, execution_status)
+    report["confidence"] = overall_confidence(coverage, execution_status)
+
     return validate_report(report)
 
 

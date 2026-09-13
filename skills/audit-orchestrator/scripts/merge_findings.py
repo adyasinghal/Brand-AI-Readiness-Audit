@@ -56,11 +56,27 @@ def find_matching_bucket(finding: dict, buckets: dict, similarity_threshold: flo
     return None
 
 
+def _evidence_key(item: dict) -> tuple:
+    """Canonical, hashable key for one evidence entry, used to drop exact
+    duplicates when merging evidence from multiple contributing findings."""
+    return (
+        item.get("type"),
+        item.get("description"),
+        tuple(sorted(item.get("urls") or [])),
+    )
+
+
 def merge_evidence(group: list) -> dict:
     best = max(group, key=lambda f: f["confidence"])
     evidence, provenance = [], []
+    seen_evidence = set()
     for f in group:
-        evidence.extend(f.get("evidence") or [])
+        for item in f.get("evidence") or []:
+            key = _evidence_key(item)
+            if key in seen_evidence:
+                continue
+            seen_evidence.add(key)
+            evidence.append(item)
         provenance.append(f.get("provenance"))
     merged = dict(best)
     merged["evidence"] = evidence

@@ -15,25 +15,74 @@ Two tiers, matching common/capabilities.py:
 
 Returns gap pages only via SkillResult.metrics; never writes back into PageArtifact.
 """
-from models import skill_result, make_finding, insufficient_evidence_result
+from models import (skill_result, make_finding, insufficient_evidence_result, apply_invariant_i1,
+                     coverage_ratio, scale_confidence, step_down_severity)
 
-_MIN_SUBSTANTIAL_CHARS = 200
+_MIN_SUBSTANTIAL_CHARS = 200  # fallback for page types without a specific threshold
+
+# A single flat "substantial content" threshold treats a contact page (legitimately
+# short: an address, a phone number, a form) the same as an article page (expected
+# to carry a real body of text), which produces both false positives (flagging
+# short-but-complete contact pages as rendering gaps) and false negatives (letting
+# a thin article page pass). Thresholds are calibrated per page_type instead, using
+# the same acquisition-owned classification used by analyze_machine_readability.py.
+_MIN_SUBSTANTIAL_CHARS_BY_TYPE = {
+    "home": 300,
+    "category": 250,
+    "product": 150,
+    "article": 400,
+    "contact": 80,
+    "about": 200,
+    "legal": 150,
+    "other": _MIN_SUBSTANTIAL_CHARS,
+}
+
+
+def _threshold_for(page_type) -> int:
+    return _MIN_SUBSTANTIAL_CHARS_BY_TYPE.get(page_type, _MIN_SUBSTANTIAL_CHARS)
 
 
 def _heuristic_gap_pages(pages):
-    """Executable today: raw HTML with very little visible text."""
+    """Executable today: raw HTML with very little visible text, judged against a
+    page-type-appropriate threshold rather than one flat number."""
     return [p.url for p in pages
-            if len((p.visible_text or "").strip()) < _MIN_SUBSTANTIAL_CHARS
+            if len((p.visible_text or "").strip()) < _threshold_for(p.page_type)
             and (p.status_code == 200 or p.status_code is None)]
 
 
-def _render_with_headless_browser(urls: list, limits) -> dict:
+def _render_with_headless_browser(urls: list, limits, timeout_s: float = None) -> dict:
     """Tier 2 (optional): actually renders each URL with a real headless browser and
     returns {url: rendered_text_length_or_None}. A per-page failure degrades that
     page to None; it never raises out of this function. Bounded by MAX_RENDERED_PAGES
     (how many pages get rendered at all) -- retained evidence is further capped by
-    MAX_RETAINED_RENDERED_PAGES by the caller."""
-    urls = urls[: limits.MAX_RENDERED_PAGES]
+    MAX_RETAINED_RENDERED_PAGES by the caller.
+
+    Runs inside a genuine child process (common/subprocess_isolation.py), not just
+    inside Playwright's own cooperative per-navigation timeout: a real browser
+    process (or something it spawns) can become unresponsive in ways Playwright's
+    own timeout cannot always detect (e.g. a hung `browser.close()`), and a
+    ThreadPoolExecutor future timeout can only abandon a hung thread, never kill
+    it. The child process is hard-killed at the wall-clock deadline regardless of
+    what is happening inside it, so this call can never block the orchestrator
+    past its own timeout.
+    """
+    from subprocess_isolation import run_isolated
+    timeout_s = timeout_s if timeout_s is not None else (limits.PER_FETCH_TIMEOUT_MS / 1000) * max(1, len(urls)) + 5
+    result = run_isolated(_render_urls_in_child, args=(urls, limits.MAX_RENDERED_PAGES, limits.PER_FETCH_TIMEOUT_MS),
+                           timeout_s=timeout_s)
+    if not result.ok:
+        # Killed, crashed, or errored -- never fabricate rendered content. The
+        # caller treats an empty dict the same as "headless rendering unavailable
+        # this run": pages fall back to insufficient_evidence, never a defect.
+        return {}, result.timed_out, result.error
+    return result.value, False, None
+
+
+def _render_urls_in_child(urls: list, max_rendered_pages: int, per_fetch_timeout_ms: int) -> dict:
+    """Runs in the child process spawned by run_isolated(). Must stay picklable-by-
+    reference (top-level function, plain-type args/return) and must not touch
+    anything from the parent's memory beyond its arguments."""
+    urls = urls[:max_rendered_pages]
     rendered_lengths = {}
     try:
         from playwright.sync_api import sync_playwright
@@ -42,7 +91,7 @@ def _render_with_headless_browser(urls: list, limits) -> dict:
             page = browser.new_page()
             for url in urls:
                 try:
-                    page.goto(url, timeout=limits.PER_FETCH_TIMEOUT_MS, wait_until="networkidle")
+                    page.goto(url, timeout=per_fetch_timeout_ms, wait_until="networkidle")
                     text = page.inner_text("body")
                     rendered_lengths[url] = len((text or "").strip())
                 except Exception:
@@ -70,11 +119,32 @@ def analyze_rendering(artifacts, deadline, limits, capabilities=None):
     rendered_count = 0
 
     if headless_available and heuristic_gap_pages:
-        rendered_lengths = _render_with_headless_browser(heuristic_gap_pages, limits)
+        rendered_lengths, subprocess_timed_out, subprocess_error = _render_with_headless_browser(
+            heuristic_gap_pages, limits)
+        if subprocess_timed_out:
+            findings.append(apply_invariant_i1(make_finding(
+                category="ai_discoverability", finding_type="proactive_improvement", severity="low",
+                status="insufficient_evidence", confidence=0.2,
+                title="Headless rendering did not complete within its time budget",
+                root_cause="The isolated rendering subprocess exceeded its wall-clock deadline and was "
+                           "terminated; rendering-gap pages fall back to the static-only heuristic",
+                evidence=[{"type": "render_subprocess_timeout",
+                           "description": subprocess_error or "subprocess killed on timeout",
+                           "urls": heuristic_gap_pages[:10]}],
+                suggested_action={"summary": "Re-run the audit; if this recurs, the target site may be slow "
+                                              "or blocking headless browsers",
+                                   "steps": ["Re-run the audit", "Check for bot-detection on the target site"],
+                                   "priority": "low", "effort": "low",
+                                   "expected_benefit": "Restores confirmed (not just suspected) rendering-gap findings",
+                                   "verification": "Re-run and confirm rendering_mode reports headless_browser"},
+                provenance={"skill": "crawl-render-audit", "script": "analyze_rendering.py",
+                            "rule_id": "render-subprocess-timeout", "tier": "rendering_headless_browser"},
+            )))
+        page_type_by_url = {p.url: p.page_type for p in artifacts.pages}
         rendered_count = sum(1 for v in rendered_lengths.values() if v is not None)
         confirmed_gap_pages = [
             url for url, length in rendered_lengths.items()
-            if length is not None and length >= _MIN_SUBSTANTIAL_CHARS
+            if length is not None and length >= _threshold_for(page_type_by_url.get(url))
         ]
         # Pages that still render thin (or failed to render) are NOT a confirmed
         # rendering gap -- they may just be genuinely thin pages. Report separately,
@@ -99,11 +169,21 @@ def analyze_rendering(artifacts, deadline, limits, capabilities=None):
             ))
 
         if confirmed_gap_pages:
+            # Evidence-completeness: confidence reflects how many of the CANDIDATE
+            # gap pages we were actually able to render and confirm (bounded by
+            # MAX_RENDERED_PAGES), not just how many came back confirmed among
+            # those we could try (Round-3 review item 1).
+            render_ratio = coverage_ratio(rendered_count, len(heuristic_gap_pages))
             findings.append(make_finding(
-                category="ai_discoverability", finding_type="defect", severity="high",
-                status="confirmed", confidence=0.9,
+                category="ai_discoverability", finding_type="defect",
+                severity=step_down_severity("high", render_ratio),
+                status="confirmed", confidence=scale_confidence(0.9, render_ratio),
                 title="Content requires JavaScript rendering to appear",
-                root_cause="Raw HTML is near-empty but headless rendering reveals substantial content",
+                root_cause="Raw HTML is near-empty but headless rendering reveals substantial content"
+                           + ("" if render_ratio >= 0.999 else
+                              f" (confirmed via headless rendering on {rendered_count} of "
+                              f"{len(heuristic_gap_pages)} candidate pages; the rest were not rendered "
+                              "within this run's budget)"),
                 evidence=[{"type": "render_gap", "description": "Rendered content is substantial; static fetch is not",
                            "urls": confirmed_gap_pages[: limits.MAX_RETAINED_RENDERED_PAGES]}],
                 suggested_action={

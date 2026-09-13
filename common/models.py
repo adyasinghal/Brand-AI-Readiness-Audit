@@ -140,6 +140,67 @@ def intermediate_artifact(artifact_type: str, data=None, status="success", warni
 _FINDING_COUNTER = {"n": 0}
 
 
+def coverage_ratio(observed, total) -> float:
+    """Fraction of the relevant population actually observed/checked (Round-3 review:
+    'evidence completeness should be reflected in confidence/severity'). Returns 1.0
+    when total is 0/unknown -- there is nothing incomplete to report relative to a
+    denominator that doesn't exist, so an unknown population is never treated as
+    evidence of poor coverage."""
+    if not total or total <= 0:
+        return 1.0
+    return max(0.0, min(1.0, observed / total))
+
+
+def scale_confidence(base_confidence: float, ratio: float, floor: float = 0.3) -> float:
+    """Pulls a rule's base confidence toward `floor` in proportion to how much of the
+    relevant population backs it. ratio=1.0 (full coverage) leaves confidence
+    unchanged; lower ratios pull it down. Confidence never rises above what the rule
+    would have reported under full coverage, and never falls below `floor` -- partial
+    evidence should never look MORE confident than complete evidence would, but a
+    single sample is still worth reporting, just at reduced confidence rather than
+    suppressed outright (suppression is Invariant I-1's job, for the no-evidence case)."""
+    ratio = max(0.0, min(1.0, ratio))
+    scaled = floor + (base_confidence - floor) * ratio
+    return round(max(floor, min(base_confidence, scaled)), 3)
+
+
+_SEVERITY_ORDER = ["low", "medium", "high", "critical"]
+
+
+def step_down_severity(severity: str, ratio: float, threshold: float = 0.5) -> str:
+    """Steps a defect's severity down exactly one tier when the evidence behind it
+    covers less than `threshold` of the relevant population -- e.g. a defect
+    confirmed on 2 of 40 crawled pages is real, but shouldn't carry the same severity
+    as one confirmed across a complete crawl. Never raises severity, never steps
+    below 'low', and is orthogonal to Invariant I-1 (which governs the different case
+    of no confirmed defect at all, i.e. status == insufficient_evidence)."""
+    if severity not in _SEVERITY_ORDER or ratio >= threshold:
+        return severity
+    idx = _SEVERITY_ORDER.index(severity)
+    return _SEVERITY_ORDER[max(0, idx - 1)]
+
+
+def weakest_link_confidence(**components: float) -> dict:
+    """Generalizes the report-level 'weak link' method already used by
+    execution_summary.overall_confidence into a reusable primitive for individual
+    findings: takes named confidence components (e.g. identity_confidence=0.9,
+    coverage_confidence=0.4) and returns their minimum plus a labeled breakdown.
+    This keeps distinct dimensions -- e.g. how well an entity was identified vs. how
+    much of the intended search coverage actually completed -- visible and separate
+    rather than collapsed into one opaque number (Round-3 review: 'coverage
+    confidence vs. site-quality separation'). A weak link in any one dimension caps
+    the result; it is never averaged away by a strong one."""
+    if not components:
+        return {"score": 0.0, "method": "no components provided", "components": {}}
+    score = min(components.values())
+    return {
+        "score": round(score, 3),
+        "method": "min(" + ", ".join(components.keys()) + ") -- the weakest dimension "
+                  "caps the result rather than being averaged out",
+        "components": {k: round(v, 3) for k, v in components.items()},
+    }
+
+
 def apply_invariant_i1(finding: dict) -> dict:
     """Invariant I-1 (section 9): insufficient_evidence implies proactive_improvement + low."""
     if finding.get("status") == "insufficient_evidence":

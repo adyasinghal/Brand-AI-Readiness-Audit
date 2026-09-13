@@ -66,6 +66,9 @@ def _safe_get(url: str, timeout_s: float, allow_private: bool, instrumentation,
             url, headers={"User-Agent": USER_AGENT}, timeout=timeout_s,
             stream=True, allow_redirects=False,
         )
+    except requests.Timeout:
+        instrumentation.record_request(ok=False, timed_out=True)
+        return None, "timeout"
     except requests.RequestException:
         instrumentation.record_request(ok=False)
         return None, "failed"
@@ -74,6 +77,7 @@ def _safe_get(url: str, timeout_s: float, allow_private: bool, instrumentation,
         location = resp.headers.get("Location")
         resp.close()
         instrumentation.record_request(ok=True, nbytes=0)
+        instrumentation.record_redirect()
         if not location:
             return None, "failed"
         target = urljoin(url, location)
@@ -98,6 +102,10 @@ def _safe_get(url: str, timeout_s: float, allow_private: bool, instrumentation,
                 instrumentation.record_truncated()
                 break
             chunks.append(chunk)
+    except requests.Timeout:
+        resp.close()
+        instrumentation.record_request(ok=False, timed_out=True)
+        return None, "timeout"
     except requests.RequestException:
         resp.close()
         instrumentation.record_request(ok=False)
@@ -273,7 +281,48 @@ def _fetch_llms_txt(origin: str, timeout_s: float, allow_private: bool, instrume
     return {"present": True, "status": "ok"}
 
 
-def _extract_page(url: str, resp, fetch_ms: int, limits) -> PageArtifact:
+_PRODUCT_PATH_RE = re.compile(r"/(product|products|item|items|shop|store|sku)(/|$)", re.I)
+_ARTICLE_PATH_RE = re.compile(r"/(blog|news|article|articles|press|insights|stories)(/|$)", re.I)
+_CONTACT_PATH_RE = re.compile(r"/(contact|contact-us|get-in-touch)(/|$)", re.I)
+_ABOUT_PATH_RE = re.compile(r"/(about|about-us|company|team|who-we-are)(/|$)", re.I)
+_LEGAL_PATH_RE = re.compile(r"/(privacy|terms|legal|cookie|tos)(/|-|$)", re.I)
+_CATEGORY_PATH_RE = re.compile(r"/(category|categories|collection|collections|catalog)(/|$)", re.I)
+
+# Page-type classification is an acquisition-owned observation (v4.0 section 2 lists
+# "page type" among the acquisition-owned fields): it is derived only from facts
+# already captured during acquisition -- URL path shape and JSON-LD @type -- never
+# from a later analysis conclusion. It downstream lets structured-data checks,
+# rendering thresholds, and freshness-category calibration compare pages against a
+# type-appropriate expectation instead of one flat rule for every page.
+def _classify_page_type(url: str, origin: str, jsonld_blocks, path: str) -> str:
+    jsonld_types = {b.get("@type") for b in jsonld_blocks
+                    if isinstance(b, dict) and isinstance(b.get("@type"), str)}
+    if url.rstrip("/") == origin.rstrip("/") or (path or "") in ("", "/"):
+        return "home"
+    if jsonld_types & {"Product", "Offer", "IndividualProduct"}:
+        return "product"
+    if jsonld_types & {"Article", "BlogPosting", "NewsArticle"}:
+        return "article"
+    if jsonld_types & {"ContactPage"}:
+        return "contact"
+    if jsonld_types & {"AboutPage"}:
+        return "about"
+    if _PRODUCT_PATH_RE.search(path):
+        return "product"
+    if _ARTICLE_PATH_RE.search(path):
+        return "article"
+    if _CONTACT_PATH_RE.search(path):
+        return "contact"
+    if _ABOUT_PATH_RE.search(path):
+        return "about"
+    if _LEGAL_PATH_RE.search(path):
+        return "legal"
+    if _CATEGORY_PATH_RE.search(path):
+        return "category"
+    return "other"
+
+
+def _extract_page(url: str, resp, fetch_ms: int, limits, fetch_status: str = "ok") -> PageArtifact:
     ctype = resp.headers.get("Content-Type") if resp is not None else None
     text = resp.text if (resp is not None and resp.ok) else ""
     soup = BeautifulSoup(text, "html.parser")
@@ -316,7 +365,11 @@ def _extract_page(url: str, resp, fetch_ms: int, limits) -> PageArtifact:
     redirect_hops = getattr(resp, "redirect_hops", 0) if resp is not None else 0
     warnings = list(jsonld_warnings)
     if resp is None:
-        warnings.append("fetch_failed")
+        # Distinguish *why* nothing was fetched -- "timed out" vs. "connection/other
+        # failure" vs. "too many redirects" are different facts, not one bucket
+        # (Round-3 handout: "report budget exhaustion separately [from] fetch
+        # failure", generalized here to every failure mode being named honestly).
+        warnings.append(f"fetch_{fetch_status}")
     if redirect_hops:
         warnings.append(f"redirected_{redirect_hops}_hop(s)")
     if resp is not None and getattr(resp, "truncated", False):
@@ -328,7 +381,8 @@ def _extract_page(url: str, resp, fetch_ms: int, limits) -> PageArtifact:
         visible_text=visible_text, title=title, meta_description=meta_description,
         canonical_url=canonical_url, headings=headings,
         internal_links=tuple(internal_links[:200]), external_links=tuple(external_links[:200]),
-        jsonld_blocks=tuple(freeze_value(b) for b in jsonld_blocks), page_type=None,
+        jsonld_blocks=tuple(freeze_value(b) for b in jsonld_blocks),
+        page_type=_classify_page_type(url, origin, jsonld_blocks, urlparse(url).path),
         fetch_duration_ms=fetch_ms, render_status="not_rendered",
         breadcrumb_visible=breadcrumb_visible, breadcrumb_schema=freeze_value(breadcrumb_schema),
         ai_crawler_directives=freeze_value({}), warnings=tuple(warnings),
@@ -383,11 +437,26 @@ def acquire_site(site_url: str, deadline, limits, instrumentation=None,
 
     to_visit = [site_url]
     visited = set()
+    discovered = {site_url}
     pages = []
     total_bytes = 0
     depth_map = {site_url: 0}
     acquisition_deadline = deadline.stage_deadlines["acquisition"]
     total_requests = 0
+
+    # sitemap.xml URLs are "discovered" the moment the sitemap is read, whether or
+    # not the crawl ever reaches them -- discovered is a superset of fetched.
+    discovered.update(sitemap_data.get("urls", []))
+    # Sitemap is also queued for crawling, not just counted (v4.0 section 8.1:
+    # "discover sitemap and fall back to internal links") -- a page listed only in
+    # the sitemap and never linked from anywhere else on the site (a genuine
+    # broken-navigation / isolated-page case) would otherwise never be fetched at
+    # all. Seeded at depth 1 (one hop from the root) and still subject to every
+    # existing bound below (max_pages, MAX_CRAWL_DEPTH, deadline, dedup).
+    for _sitemap_url in sitemap_data.get("urls", []):
+        if _sitemap_url not in visited and _sitemap_url not in to_visit:
+            to_visit.append(_sitemap_url)
+            depth_map.setdefault(_sitemap_url, 1)
 
     # Conservative mode (robots retrieval/parse failed): fetch only the single
     # initial page and follow no links, rather than assuming unrestricted access.
@@ -433,14 +502,13 @@ def acquire_site(site_url: str, deadline, limits, instrumentation=None,
 
         if status == "cross_origin_redirect_blocked":
             instrumentation.record_skip("cross_origin_redirect_blocked")
-            page = _extract_page(url, None, fetch_ms, limits)
-            page = PageArtifact(**{**page.__dict__, "warnings": page.warnings + ("cross_origin_redirect_blocked",)})
+            page = _extract_page(url, None, fetch_ms, limits, fetch_status="cross_origin_redirect_blocked")
             pages.append(page)
             continue
         if status == "blocked":
             continue  # already recorded via record_safety_block
 
-        page = _extract_page(url, resp, fetch_ms, limits)
+        page = _extract_page(url, resp, fetch_ms, limits, fetch_status=status)
         pages.append(page)
 
         nbytes = len(resp.content) if (resp is not None and resp.content) else 0
@@ -450,6 +518,7 @@ def acquire_site(site_url: str, deadline, limits, instrumentation=None,
             break
 
         for link in page.internal_links:
+            discovered.add(link)  # discovered != fetched: recorded even if never queued below
             if link in visited or link in to_visit:
                 continue
             link_check = classify_url(link, allow_private=allow_private_targets)
@@ -457,9 +526,40 @@ def acquire_site(site_url: str, deadline, limits, instrumentation=None,
                 instrumentation.record_safety_block(link, link_check.reason)
                 continue
             depth_map[link] = depth_map.get(url, 0) + 1
+            if depth_map[link] > limits.MAX_CRAWL_DEPTH:
+                instrumentation.record_skip("max_crawl_depth_exceeded")
+                continue
             to_visit.append(link)
 
     instrumentation.end_stage("acquisition")
+
+    # Factual coverage breakdown: discovered/fetched/analyzed are NOT the same
+    # number and must not be reported as if they were (Round-3 handout: "report
+    # must not equate discovered = fetched = analyzed unless that is genuinely
+    # true"). Computed from the actual outcome recorded on each PageArtifact,
+    # not from a single len(pages) count reused three times.
+    fetched_ok = [p for p in pages if p.status_code is not None and 200 <= p.status_code < 400]
+    fetched_error = [p for p in pages if p.status_code is not None and p.status_code >= 400]
+    blocked_pages = [p for p in pages if any(w.startswith("fetch_cross_origin_redirect_blocked") for w in p.warnings)]
+    timed_out_pages = [p for p in pages if any(w == "fetch_timeout" for w in p.warnings)]
+    failed_other_pages = [p for p in pages if p.status_code is None and p not in blocked_pages
+                           and p not in timed_out_pages]
+    skip_reason_counts = {}
+    for reason in instrumentation.pages_skipped_reasons:
+        skip_reason_counts[reason] = skip_reason_counts.get(reason, 0) + 1
+
+    coverage_breakdown = {
+        "urls_discovered": len(discovered),
+        "urls_fetched_attempted": len(pages),
+        "urls_fetched_ok": len(fetched_ok),
+        "urls_fetched_error": len(fetched_error),
+        "urls_blocked": len(blocked_pages) + len(instrumentation.safety_blocks),
+        "urls_timed_out": len(timed_out_pages),
+        "urls_failed_other": len(failed_other_pages),
+        "urls_analyzed": len(fetched_ok),  # only pages with real, readable content are analyzable
+        "urls_never_attempted": max(0, len(discovered) - len(pages)),
+        "skip_reason_counts": skip_reason_counts,
+    }
 
     return AuditArtifacts(
         site_url=site_url, normalized_origin=origin, pages=tuple(pages),
@@ -469,6 +569,7 @@ def acquire_site(site_url: str, deadline, limits, instrumentation=None,
                                    "ai_crawler_directives": ai_directives}),
         llms_txt_data=freeze_value(llms_txt_data), sitemap_data=freeze_value(sitemap_data),
         acquisition_metadata=freeze_value({"pages_crawled": len(pages), "total_bytes": total_bytes,
-                                            "total_requests": total_requests}),
+                                            "total_requests": total_requests,
+                                            "coverage": coverage_breakdown}),
         warnings=tuple(top_warnings),
     )

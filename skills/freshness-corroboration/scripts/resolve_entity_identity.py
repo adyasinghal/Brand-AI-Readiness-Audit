@@ -1,12 +1,68 @@
 """resolve_entity_identity.py -- runs once; centralized, disambiguated identity
-resolution (v4.0 section 4)."""
+resolution (v4.0 section 4).
+
+Ambiguity handling: not every mismatch between JSON-LD blocks means the same
+thing, and treating them all as "ambiguous -> low confidence" both over-penalizes
+harmless formatting variance and under-explains genuine multi-brand confusion:
+  - "Acme Inc." vs "Acme, Inc" vs "ACME INC" -- same entity, legal-suffix/case
+    noise. Should not lower confidence at all.
+  - "Acme" (name) vs "Acme Widgets Corporation" (legalName) where one name is a
+    substring of the other -- a parent/sub-brand relationship, not confusion
+    about which brand this is. Confidence stays reasonably high but the relation
+    is recorded, since it changes how external corroboration should be read.
+  - "Acme" vs "Zenith Traders" -- genuinely different, unrelated names on the same
+    site. This is the real multi-brand-conflict case and should suppress broad
+    name-only external search (v4.0 section 4 confidence gates).
+  - Two sameAs URLs on the *same* platform (e.g. two different LinkedIn company
+    pages) pointing at different profiles is direct conflicting-identity evidence,
+    independent of the name comparison above.
+"""
+import re
+from collections import defaultdict
+from collections.abc import Mapping
+from urllib.parse import urlsplit
 from models import intermediate_artifact
+
+_LEGAL_SUFFIX_RE = re.compile(
+    r"[,.]?\s*\b(inc|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|"
+    r"plc|gmbh|s\.a|pvt|pty)\b\.?\s*$",
+    re.IGNORECASE,
+)
+
+_PLATFORM_HOSTS = {
+    "twitter.com": "twitter", "x.com": "twitter", "facebook.com": "facebook",
+    "linkedin.com": "linkedin", "instagram.com": "instagram", "youtube.com": "youtube",
+    "tiktok.com": "tiktok", "pinterest.com": "pinterest",
+}
+
+
+def _normalize_org_name(name: str) -> str:
+    if not name:
+        return ""
+    stripped = _LEGAL_SUFFIX_RE.sub("", name.strip())
+    return re.sub(r"[^a-z0-9]+", " ", stripped.lower()).strip()
+
+
+def _platform_of(url: str) -> str:
+    try:
+        host = urlsplit(url).netloc.lower().removeprefix("www.")
+    except ValueError:
+        return ""
+    return _PLATFORM_HOSTS.get(host, host)
+
+
+def _names_are_substrings(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    return a in b or b in a
 
 
 def resolve_entity_identity(artifacts, deadline):
     org_blocks = [
+        # Mapping (not dict): real PageArtifacts store jsonld_blocks frozen as
+        # MappingProxyType (v4.0 section 2); dict-only fixtures still match too.
         block for page in artifacts.pages for block in page.jsonld_blocks
-        if isinstance(block, dict) and block.get("@type") in ("Organization", "Product", "LocalBusiness")
+        if isinstance(block, Mapping) and block.get("@type") in ("Organization", "Product", "LocalBusiness")
     ]
 
     if not org_blocks:
@@ -18,15 +74,69 @@ def resolve_entity_identity(artifacts, deadline):
 
     primary = org_blocks[0]
     name = primary.get("name") or artifacts.normalized_origin
-    aliases = sorted({b.get("name") for b in org_blocks if b.get("name")})
-    confidence = 0.9 if len(aliases) <= 1 else 0.7
-    ambiguity_set = aliases[1:] if len(aliases) > 1 else []
 
-    same_as = primary.get("sameAs", [])
-    if isinstance(same_as, (list, tuple)):
-        same_as = list(same_as)
+    raw_names = sorted({b.get("name") for b in org_blocks if b.get("name")})
+    normalized_groups = defaultdict(list)
+    for n in raw_names:
+        normalized_groups[_normalize_org_name(n)].append(n)
+    distinct_normalized = [g for g in normalized_groups.keys() if g]
+
+    disambiguation_evidence = []
+    ambiguity_set = []
+    ambiguity_type = None
+
+    if len(distinct_normalized) <= 1:
+        # All names collapse to the same normalized form (legal-suffix/case/
+        # punctuation noise only) -- not ambiguity.
+        confidence = 0.92
     else:
-        same_as = [same_as] if same_as else []
+        primary_norm = _normalize_org_name(name)
+        other_norms = [g for g in distinct_normalized if g != primary_norm]
+        substring_related = [g for g in other_norms if _names_are_substrings(primary_norm, g)]
+        unrelated = [g for g in other_norms if g not in substring_related]
+
+        if unrelated:
+            ambiguity_type = "multi_brand_conflict"
+            confidence = 0.55
+            ambiguity_set = [normalized_groups[g][0] for g in unrelated]
+            disambiguation_evidence.append(
+                f"Unrelated organization names found on the same site: "
+                f"{name!r} vs {', '.join(normalized_groups[g][0] for g in unrelated)}"
+            )
+        else:
+            ambiguity_type = "parent_sub_brand"
+            confidence = 0.8
+            ambiguity_set = [normalized_groups[g][0] for g in substring_related]
+            disambiguation_evidence.append(
+                f"Related but distinct names found (likely parent/sub-brand): "
+                f"{name!r} vs {', '.join(normalized_groups[g][0] for g in substring_related)}"
+            )
+
+    # Conflicting sameAs: two DIFFERENT profile URLs on the same platform is direct
+    # evidence of identity conflict, independent of the name comparison above.
+    same_as_all = []
+    for b in org_blocks:
+        sa = b.get("sameAs", [])
+        if isinstance(sa, (list, tuple)):
+            same_as_all.extend(sa)
+        elif sa:
+            same_as_all.append(sa)
+
+    platform_urls = defaultdict(set)
+    for url in same_as_all:
+        if url:
+            platform_urls[_platform_of(url)].add(url)
+    conflicting_sameas = {p: sorted(u) for p, u in platform_urls.items() if len(u) > 1}
+    if conflicting_sameas:
+        if ambiguity_type is None:
+            ambiguity_type = "conflicting_sameas"
+        confidence = min(confidence, 0.6)
+        for platform, urls in conflicting_sameas.items():
+            disambiguation_evidence.append(
+                f"Conflicting sameAs URLs on {platform}: {' vs '.join(urls)}"
+            )
+
+    same_as = sorted({u for urls in platform_urls.values() for u in urls}) or same_as_all
 
     data = {
         "canonical_name": name,
@@ -36,12 +146,13 @@ def resolve_entity_identity(artifacts, deadline):
         "phone_numbers": [primary.get("telephone")] if primary.get("telephone") else [],
         "same_as_urls": same_as,
         "social_handles": [],
-        "aliases": list(aliases) or [name],
+        "aliases": list(raw_names) or [name],
         "entity_type": str(primary.get("@type", "organization")).lower(),
-        "identity_fingerprint": f"{name.lower()}::{artifacts.normalized_origin}",
+        "identity_fingerprint": f"{_normalize_org_name(name) or name.lower()}::{artifacts.normalized_origin}",
         "confidence": confidence,
         "ambiguity_set": ambiguity_set,
-        "disambiguation_evidence": [],
+        "ambiguity_type": ambiguity_type,
+        "disambiguation_evidence": disambiguation_evidence,
     }
     status = "success" if confidence >= 0.85 else "partial"
     return intermediate_artifact("entity_identity", data=data, status=status)

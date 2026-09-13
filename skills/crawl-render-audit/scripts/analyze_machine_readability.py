@@ -1,5 +1,38 @@
-"""analyze_machine_readability.py -- headings, JSON-LD, semantic linkage (v4.0 section 8.2)."""
-from models import skill_result, make_finding
+"""analyze_machine_readability.py -- headings, JSON-LD, semantic linkage (v4.0
+section 8.2).
+
+Page-type-aware structured-data evaluation: whether a page is "missing structured
+data" depends on what kind of page it is. A flat "0/N pages have JSON-LD" check
+cannot tell a product-detail page missing Product/Offer markup apart from a legal
+page that never needed any -- and cannot separately flag "the home page has no
+Organization markup" from "product pages have no Product markup", which call for
+different fixes at different priorities. page_type is set during acquisition
+(acquire_site._classify_page_type) from URL shape and any JSON-LD already present;
+this script only reads it, never assigns it.
+"""
+from collections.abc import Mapping
+from models import skill_result, make_finding, coverage_ratio, scale_confidence, step_down_severity
+
+# Expected schema.org @type(s) for each page_type that should realistically carry
+# structured data. Types not listed here (e.g. "other", "category") are not held
+# to any expectation -- absence there is not evidence of anything.
+_EXPECTED_SCHEMA = {
+    "home": {"types": {"Organization", "WebSite", "LocalBusiness"}, "severity": "high",
+             "label": "Organization/WebSite"},
+    "product": {"types": {"Product", "Offer"}, "severity": "high", "label": "Product/Offer"},
+    "article": {"types": {"Article", "BlogPosting", "NewsArticle"}, "severity": "medium",
+                "label": "Article/BlogPosting"},
+    "contact": {"types": {"LocalBusiness", "Organization", "ContactPage"}, "severity": "medium",
+                "label": "LocalBusiness/Organization/ContactPage"},
+    "about": {"types": {"Organization", "AboutPage"}, "severity": "low", "label": "Organization/AboutPage"},
+}
+
+
+def _page_jsonld_types(page):
+    # Mapping (not dict): real PageArtifacts store jsonld_blocks frozen as
+    # MappingProxyType (v4.0 section 2); dict-only fixtures still match too.
+    return {b.get("@type") for b in page.jsonld_blocks
+            if isinstance(b, Mapping) and isinstance(b.get("@type"), str)}
 
 
 def analyze_machine_readability(artifacts, deadline):
@@ -7,13 +40,32 @@ def analyze_machine_readability(artifacts, deadline):
     no_jsonld = [p for p in pages if not p.jsonld_blocks]
     no_headings = [p for p in pages if not p.headings]
 
+    # Evidence-completeness ratio: these findings only ever speak for the pages
+    # actually crawled. "0/N have JSON-LD" is strong evidence when N is most of
+    # the discovered site, weaker when the crawl only reached a small slice of it
+    # (Round-3 review item 1) -- confidence/severity below are scaled accordingly.
+    acq_coverage = artifacts.acquisition_metadata.get("coverage", {})
+    crawl_ratio = coverage_ratio(
+        acq_coverage.get("urls_analyzed", len(pages)),
+        acq_coverage.get("urls_discovered", len(pages)),
+    )
+
     findings = []
+
     if pages and len(no_jsonld) == len(pages):
+        # No structured data anywhere -- the coarsest, most severe version of this
+        # gap. Kept as its own finding rather than folded into the per-type checks
+        # below, since it's evidence about the whole site, not one page type.
         findings.append(make_finding(
-            category="ai_discoverability", finding_type="defect", severity="high",
-            status="confirmed", confidence=0.85,
+            category="ai_discoverability", finding_type="defect",
+            severity=step_down_severity("high", crawl_ratio),
+            status="confirmed", confidence=scale_confidence(0.85, crawl_ratio),
             title="No structured data (JSON-LD) found on any crawled page",
-            root_cause="Pages lack schema.org JSON-LD markup",
+            root_cause="Pages lack schema.org JSON-LD markup"
+                       + ("" if crawl_ratio >= 0.999 else
+                          f" (observed on the {len(pages)} of "
+                          f"{acq_coverage.get('urls_discovered', len(pages))} discovered pages that were "
+                          "actually crawled)"),
             evidence=[{"type": "structured_data", "description": f"0/{len(pages)} pages contain JSON-LD",
                        "urls": [p.url for p in pages][:10]}],
             suggested_action={
@@ -26,10 +78,45 @@ def analyze_machine_readability(artifacts, deadline):
             provenance={"skill": "crawl-render-audit", "script": "analyze_machine_readability.py",
                         "rule_id": "no-jsonld"},
         ))
+    else:
+        # Some structured data exists somewhere -- check it's the RIGHT structured
+        # data for each page's role, per type.
+        by_type_gaps = {}
+        for page in pages:
+            spec = _EXPECTED_SCHEMA.get(page.page_type)
+            if not spec:
+                continue
+            if not (_page_jsonld_types(page) & spec["types"]):
+                by_type_gaps.setdefault(page.page_type, []).append(page.url)
+
+        for page_type, urls in by_type_gaps.items():
+            spec = _EXPECTED_SCHEMA[page_type]
+            findings.append(make_finding(
+                category="ai_discoverability", finding_type="defect",
+                severity=step_down_severity(spec["severity"], crawl_ratio),
+                status="confirmed", confidence=scale_confidence(0.75, crawl_ratio),
+                title=f"{page_type.capitalize()} pages are missing {spec['label']} structured data",
+                root_cause=f"{len(urls)} page(s) classified as '{page_type}' carry no "
+                           f"{spec['label']} JSON-LD, so key facts on them are not machine-extractable",
+                evidence=[{"type": "structured_data",
+                           "description": f"{len(urls)} '{page_type}' page(s) missing {spec['label']} markup",
+                           "urls": urls[:10]}],
+                suggested_action={
+                    "summary": f"Add {spec['label']} JSON-LD to {page_type} pages",
+                    "steps": [f"Add {spec['label']} schema.org JSON-LD matching each {page_type} page's content",
+                              "Validate with a schema.org/Rich Results validator"],
+                    "priority": spec["severity"], "effort": "medium",
+                    "expected_benefit": f"{page_type.capitalize()} facts become machine-extractable and citable",
+                    "verification": "Re-crawl and confirm the expected @type is present",
+                },
+                provenance={"skill": "crawl-render-audit", "script": "analyze_machine_readability.py",
+                            "rule_id": f"page-type-schema-gap:{page_type}"},
+            ))
+
     if no_headings:
         findings.append(make_finding(
             category="ai_discoverability", finding_type="proactive_improvement", severity="low",
-            status="confirmed", confidence=0.7,
+            status="confirmed", confidence=scale_confidence(0.7, crawl_ratio),
             title="Some pages lack semantic headings",
             root_cause="Pages have no h1-h6 elements",
             evidence=[{"type": "headings", "description": f"{len(no_headings)} pages have no headings",
@@ -47,5 +134,6 @@ def analyze_machine_readability(artifacts, deadline):
 
     return skill_result(
         "crawl-render-audit", findings=findings,
-        metrics={"pages_with_jsonld": len(pages) - len(no_jsonld), "pages_without_headings": len(no_headings)},
+        metrics={"pages_with_jsonld": len(pages) - len(no_jsonld), "pages_without_headings": len(no_headings),
+                 "crawl_coverage_ratio": round(crawl_ratio, 3)},
     )

@@ -1,4 +1,4 @@
-# Brand AI-Readiness Audit Marketplace (v4.2)
+# Brand AI-Readiness Audit Marketplace (v4.4.1)
 
 An Agent Skill Marketplace (agentskills.io format) that audits a website for
 AI discoverability and on-site engagement problems, and emits a single
@@ -141,6 +141,99 @@ of the 42 pre-existing tests needed behavior changes (three test call sites
 needed an explicit `allow_private_targets=True` to keep pointing at the local
 fixture server, and two fixtures needed a `status` field added).
 
+## Changelog (v4.2 -> v4.3)
+
+Six further correctness/rigor gaps, found by re-reading the actual code against
+the Round-3 handout rather than assuming the v4.2 pass covered everything:
+
+1. **True cancellation for the one genuine hang risk.** A `ThreadPoolExecutor`
+   future timeout can *detect* a hung specialist but cannot kill its thread.
+   That's an accepted, documented limitation for in-process analysis functions
+   (the v4.0 architecture's explicit shared-memory choice), but headless
+   rendering spawns a real browser process that can genuinely hang. Added
+   `common/subprocess_isolation.py`: rendering now runs in a real child process
+   with `join(timeout)` + `terminate()` + `kill()` -- the parent is guaranteed to
+   regain control by the deadline no matter what the browser does. Verified with
+   a test that hands it a function that loops forever and confirms it's killed
+   within bounds.
+2. **Retries, redirects, and timeouts are now counted as distinct telemetry**
+   (`redirects_followed`, `requests_timed_out`) instead of folding into a single
+   generic "failed" bucket, so budget exhaustion and fetch failure are
+   separately reportable.
+3. **Coverage metrics were not factual**: `run_audit.py` reported
+   `pages_discovered == pages_analyzed == len(artifacts.pages)` -- one number,
+   reused three times, regardless of how many links were actually discovered
+   vs. fetched vs. containing real content. `analyze_crawlability.py` also
+   hardcoded `pages_skipped: 0`. Both fixed: `acquire_site.py` now tracks a real
+   `discovered` superset (every unique link seen, whether or not it was ever
+   fetched) separately from fetched/analyzed/blocked/timed-out/skipped, with a
+   reason-coded skip breakdown.
+4. **External corroboration didn't compare claim values** -- `corroborate_claims.py`
+   treated "the search returned anything" as corroboration and never actually
+   populated its own contradiction-detection code path. Rewritten to normalize
+   and compare claim values (phone/price digit-sequences, structured text)
+   against result content, distinguish `corroborated` / `contradicted` /
+   `not_found` / `not_checked` (the last two are never conflated), record the
+   actual query issued per claim, and represent a conflicting value explicitly
+   (both values + source) rather than a vague warning. `assess_external_footprint.py`
+   now also records its query formulation and a `source_diversity` (distinct-
+   domain) proxy for source quality.
+5. **Recommendations guaranteed even with zero findings** -- already correctly
+   implemented (`_GENERIC_BASELINE` in `generate_recommendations.py`) and
+   already tested; re-verified, no change needed.
+6. **Report could omit execution status, limitations, or a confidence score.**
+   Added `skills/audit-orchestrator/scripts/execution_summary.py`:
+   `execution_status` (completed / completed_with_timeouts / degraded /
+   partial_deadline_reached, derived from real deadline/skill-failure/worker-
+   timeout state), `limitations` (plain-English, each gated on an actual signal
+   from the run -- never unconditional boilerplate), and `confidence` (the
+   *minimum* of crawl completeness, identity confidence, and an execution
+   penalty, with the method spelled out -- a weak link caps the score rather
+   than being averaged away). `validate_report.py` now requires all three.
+
+33 new tests across `tests/test_isolation_and_coverage.py`,
+`tests/test_corroboration_quality.py`, and `tests/test_report_completeness.py`.
+101/101 tests pass; three existing assertions were updated to check the more
+specific, now-real distinction they previously couldn't (a generic
+`"fetch_failed"` became `"fetch_timeout"` for an actual timeout, and the
+cross-origin-redirect warning is now `"fetch_cross_origin_redirect_blocked"`).
+
+## Changelog (v4.3 -> v4.4)
+
+Round-3 review follow-ups:
+
+1. **`merge_findings.merge_evidence` now dedupes evidence entries** (by type +
+   description + sorted urls) instead of blindly concatenating them across
+   merged findings, so a near-duplicate merge no longer carries repeated
+   evidence.
+2. **Fixed a real, silent bug**: `extract_claims.py`, `resolve_entity_identity.py`,
+   and `analyze_machine_readability.py` all checked `isinstance(block, dict)`
+   on JSON-LD blocks, but real `PageArtifact.jsonld_blocks` are frozen into
+   `MappingProxyType` by `freeze_value()` (v4.0 section 2) -- so on every real
+   crawl, entity resolution, structured-claim extraction, and machine-readability
+   schema checks were silently seeing zero JSON-LD blocks. Only synthetic-dict
+   test fixtures (not real crawls) exercised the `dict` branch, which is why 101
+   passing tests never caught it. Fixed by checking `collections.abc.Mapping`
+   instead.
+3. **Sitemap-only pages are now actually crawled, not just counted.**
+   `acquire_site.py` recorded sitemap URLs in `discovered` for coverage stats
+   but never queued them for fetching -- a page listed only in the sitemap and
+   linked from nowhere else would never be fetched at all, so `isolated_clusters`
+   could never fire from that path. Sitemap URLs are now also seeded into the
+   crawl queue (depth 1, subject to every existing bound).
+4. **New fixtures** (`tests/fixtures_server.py`) and tests
+   (`tests/test_scenario_fixtures.py`): a multi-brand (conflicting-identity)
+   site, a stale-commercial-facts product page, and a broken-navigation
+   (sitemap-only, isolated-cluster) page pair -- plus external-search-unavailable
+   combos (unconfigured provider; provider configured but failing mid-query)
+   evaluated against a real fixture-crawled identity instead of a synthetic one.
+5. **SKILL.md documentation audit**: all four skills now declare `allowed-tools`
+   and a `Dependencies` section (Python packages, optional capabilities, env
+   vars), and the three non-entrypoint skills each gained a concrete
+   input/output `Example`.
+
+107/107 tests pass (101 prior + 6 new in `tests/test_scenario_fixtures.py`).
+
 ## Run it
 
 ```
@@ -155,15 +248,11 @@ corroboration/footprint search; without it, those checks report
 
 ## Tests
 
-68 tests across 7 files, all network-free (a local `ThreadingHTTPServer`
+107 tests across 11 files, all network-free (a local `ThreadingHTTPServer`
 fixture stands in for live sites -- see `tests/fixtures_server.py`):
 
 - `tests/test_smoke.py` -- full DAG wiring against a synthetic fixture.
-- `tests/test_integration.py` -- real crawls against the local fixture server:
-  normal pages, robots.txt disallow, redirects, malformed JSON-LD, timeouts,
-  error pages, orphan pages, JS-heavy pages (both the heuristic-only and, when
-  a real Chromium is available, the confirmed-by-real-render path), and a full
-  `run_audit` end-to-end pass.
+- `tests/test_integration.py` -- real crawls against the local fixture server.
 - `tests/test_findings_scripts.py` -- every finding-producing script under
   normal, malformed-input, insufficient-evidence, and worker-timeout
   conditions.
@@ -173,14 +262,30 @@ fixture stands in for live sites -- see `tests/fixtures_server.py`):
   and the four required recommendation scenarios.
 - `tests/test_capabilities_and_immutability.py` -- capability-tier registry
   and the `MappingProxyType` mutation-detection layer.
-- `tests/test_safety.py` -- SSRF/URL-safety classification (schemes,
-  credentials, loopback/private/link-local/metadata, DNS-failure), every
-  robots.txt fetch state (ok/absent/timeout/inaccessible/malformed) and its
-  fail-closed behavior, real sitemap.xml/llms.txt fetch states, mid-stream
-  byte-budget truncation, same-origin vs. cross-origin redirect handling, and
-  a static guard against mutating HTTP methods or form-submitting/JS-evaluating
-  Playwright calls.
+- `tests/test_safety.py` -- SSRF/URL-safety classification, every robots.txt
+  fetch state and its fail-closed behavior, real sitemap.xml/llms.txt fetch
+  states, mid-stream byte-budget truncation, same-origin vs. cross-origin
+  redirects, and a static guard against mutating HTTP methods.
+- `tests/test_isolation_and_coverage.py` -- subprocess-isolation hard-kill
+  guarantee, distinct redirect/timeout/retry counters, and factual
+  discovered/fetched/analyzed coverage breakdowns.
+- `tests/test_corroboration_quality.py` -- claim-value comparison (phone/price
+  digit-sequence matching), not-checked-vs-not-found, query recording, and
+  explicit conflict representation.
+- `tests/test_report_completeness.py` -- execution_status derivation,
+  signal-gated limitations, confidence scoring, and a real end-to-end report's
+  field completeness.
+- `tests/test_scenario_fixtures.py` -- multi-brand identity conflict, stale
+  commercial facts, broken-navigation isolated clusters, and external-search-
+  unavailable combos, all against real fixture-crawled data.
 
 ```
 python3 -m pytest tests/ -q
 ```
+
+
+### Packaging and measurement notes
+
+- Runtime dependencies are in `requirements.txt`; test/render dependencies are in `requirements-dev.txt`.
+- Runtime telemetry reports both the Python `tracemalloc` peak and a best-effort parent-process RSS measurement. These are distinct metrics; Chromium child-process RSS is not claimed unless separately available.
+- The package is intentionally read-only and excludes generated cache artifacts from release archives.

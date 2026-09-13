@@ -302,7 +302,7 @@ def test_cross_origin_redirect_is_not_followed():
         artifacts = acquire_site(base_url + "/redirect-external", deadline, limits, instrumentation,
                                   allow_private_targets=True)
         page = artifacts.pages[0]
-        assert "cross_origin_redirect_blocked" in page.warnings
+        assert "fetch_cross_origin_redirect_blocked" in page.warnings
         # Never actually reached the cross-origin target.
         assert "example.invalid.test" not in "".join(instrumentation.pages_skipped_reasons)
     finally:

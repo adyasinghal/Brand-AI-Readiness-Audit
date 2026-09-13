@@ -7,6 +7,8 @@ handling) rather than a fabricated zero.
 from __future__ import annotations
 import threading
 import tracemalloc
+import os
+import sys
 from dataclasses import dataclass, field
 from time import monotonic
 from typing import Optional
@@ -27,11 +29,40 @@ class Instrumentation:
     external_fetches_completed: int = 0
     worker_timeout_events: list = field(default_factory=list)  # [{"stage":..,"worker":..,"at":..}]
     requests_retried: int = 0
+    requests_timed_out: int = 0
+    redirects_followed: int = 0
     responses_truncated: int = 0
     urls_deduplicated: int = 0
     safety_blocks: list = field(default_factory=list)  # [{"url":.., "reason":..}], capped
     _tracemalloc_started_here: bool = field(default=False, repr=False)
     _SAFETY_BLOCKS_CAP: int = field(default=50, repr=False)
+
+    @staticmethod
+    def process_rss_mb() -> Optional[float]:
+        """Best-effort current process RSS; None when the platform exposes no safe API."""
+        try:
+            if sys.platform.startswith("linux"):
+                with open("/proc/self/status", encoding="utf-8") as fh:
+                    for line in fh:
+                        if line.startswith("VmRSS:"):
+                            return round(int(line.split()[1]) / 1024, 3)
+            if sys.platform == "darwin":
+                import resource
+                return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024), 3)
+            if os.name == "nt":
+                import ctypes
+                class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                    _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
+                                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+                counters = PROCESS_MEMORY_COUNTERS(); counters.cb = ctypes.sizeof(counters)
+                if ctypes.windll.psapi.GetProcessMemoryInfo(-1, ctypes.byref(counters), counters.cb):
+                    return round(counters.WorkingSetSize / (1024 * 1024), 3)
+        except (OSError, ImportError, AttributeError, ValueError, TypeError):
+            pass
+        return None
 
     def start_stage(self, name: str) -> None:
         with self._lock:
@@ -42,7 +73,7 @@ class Instrumentation:
             if name in self.stage_timings:
                 self.stage_timings[name]["end"] = monotonic()
 
-    def record_request(self, ok: bool, nbytes: int = 0) -> None:
+    def record_request(self, ok: bool, nbytes: int = 0, timed_out: bool = False) -> None:
         with self._lock:
             self.requests_attempted += 1
             if ok:
@@ -50,6 +81,12 @@ class Instrumentation:
                 self.bytes_downloaded += nbytes
             else:
                 self.requests_failed += 1
+                if timed_out:
+                    self.requests_timed_out += 1
+
+    def record_redirect(self) -> None:
+        with self._lock:
+            self.redirects_followed += 1
 
     def record_skip(self, reason: str) -> None:
         with self._lock:
@@ -114,7 +151,9 @@ class Instrumentation:
             "requests_attempted": self.requests_attempted,
             "requests_completed": self.requests_completed,
             "requests_failed": self.requests_failed,
+            "requests_timed_out": self.requests_timed_out,
             "requests_retried": self.requests_retried,
+            "redirects_followed": self.redirects_followed,
             "responses_truncated": self.responses_truncated,
             "urls_deduplicated": self.urls_deduplicated,
             "bytes_downloaded": self.bytes_downloaded,
@@ -124,5 +163,6 @@ class Instrumentation:
             "external_fetches_attempted": self.external_fetches_attempted,
             "external_fetches_completed": self.external_fetches_completed,
             "worker_timeout_events": self.worker_timeout_events,
-            "memory_peak_mb": memory_peak_mb,  # None means "not measured", never a fabricated 0
+            "memory_peak_mb": memory_peak_mb,  # Python allocation peak
+            "process_rss_mb": self.process_rss_mb(),  # best-effort process RSS; may be None
         }

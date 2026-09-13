@@ -8,6 +8,7 @@ description: Entrypoint skill for the Brand AI-Readiness Audit marketplace. Give
   report (findings + suggested actions). Use this skill whenever a general audit
   of a website's AI discoverability and on-site engagement is requested.
 license: MIT
+allowed-tools: [bash, network-fetch]
 ---
 
 # Audit Orchestrator
@@ -15,6 +16,16 @@ license: MIT
 ## When to use
 Use when asked to audit a website for AI discoverability and on-site engagement
 problems, or to run the brand-ai-readiness-audit marketplace end to end.
+
+## Dependencies
+- Python: `requests`, `beautifulsoup4` (required). `playwright` (optional --
+  enables real headless rendering; falls back to a heuristic, `suspected`
+  gap-detection when absent).
+- Env: `SEARCH_API_URL` (optional, plus `SEARCH_API_KEY`) enables external
+  corroboration/footprint search in `freshness-corroboration`; without it those
+  checks report `insufficient_evidence`, never a confirmed absence.
+- Network: outbound GET only, to the target site and (if configured) the
+  external search endpoint. No credentials, no mutating requests.
 
 ## Inputs
 - `site_url`: a URL or bare domain.
@@ -49,5 +60,37 @@ problems, or to run the brand-ai-readiness-audit marketplace end to end.
 
 ## Output
 A JSON report matching `references/report-schema.md`: `site`, `audited_at`,
-`summary`, `coverage`, and `findings` (each with evidence, severity, and a
-suggested action). Recommend-only -- no skill ever modifies a live site.
+`summary`, `coverage`, `findings`, `recommendations`, `execution_status`
+(completed / completed_with_timeouts / degraded / partial_deadline_reached),
+`limitations` (plain-English, each tied to a real signal from the run -- never
+unconditional boilerplate), and `confidence` (the minimum of crawl
+completeness, identity confidence, and an execution penalty, with its method
+shown). Recommend-only -- no skill ever modifies a live site.
+
+Headless rendering runs in an isolated child process
+(`common/subprocess_isolation.py`) with a hard wall-clock kill, not just
+Playwright's own cooperative per-navigation timeout -- a genuinely hung browser
+process cannot block the orchestrator past its deadline.
+
+## Example
+
+```
+$ python3 skills/audit-orchestrator/scripts/run_audit.py https://example.com
+```
+
+```json
+{
+  "site": "https://example.com/",
+  "audited_at": "2026-09-13T00:00:00Z",
+  "summary": {"total_findings": 3, "critical": 0, "high": 1, "medium": 1, "low": 1},
+  "findings": [
+    {"id": "F-001", "category": "ai_discoverability", "severity": "high",
+     "status": "confirmed", "root_cause": "No Product/Offer JSON-LD on product pages"}
+  ],
+  "recommendations": [
+    {"id": "R-001", "category": "engagement", "finding_type": "proactive_improvement"}
+  ],
+  "execution_status": "completed",
+  "confidence": {"score": 0.82, "method": "weakest_link"}
+}
+```

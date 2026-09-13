@@ -6,13 +6,25 @@ timeout/inaccessible/malformed/blocked). A confirmed "disallows crawling" defect
 requires general_disallow is True; a robots.txt we could not check is reported as
 insufficient evidence, never inferred as a block (Invariant I-1).
 """
-from models import skill_result, make_finding, apply_invariant_i1
+from models import (skill_result, make_finding, apply_invariant_i1,
+                     coverage_ratio, scale_confidence, step_down_severity)
 
 
 def analyze_crawlability(artifacts, deadline):
     findings = []
     pages = artifacts.pages
     important_pages = [p for p in pages if p.url == artifacts.site_url]
+
+    # Evidence-completeness ratio: how much of the DISCOVERED site the crawl
+    # actually analyzed. "2/2 pages crawled are broken" and "2/50 pages crawled
+    # are broken" are both real findings, but the first says much less about the
+    # site as a whole -- confidence/severity below are scaled by this ratio
+    # rather than treated as equally strong evidence (Round-3 review item 1).
+    acq_coverage = artifacts.acquisition_metadata.get("coverage", {})
+    crawl_ratio = coverage_ratio(
+        acq_coverage.get("urls_analyzed", len(pages)),
+        acq_coverage.get("urls_discovered", len(pages)),
+    )
 
     general_disallow = artifacts.robots_data.get("general_disallow")
     robots_status = artifacts.robots_data.get("status", "not_checked")
@@ -58,10 +70,15 @@ def analyze_crawlability(artifacts, deadline):
     error_pages = [p for p in pages if p.status_code and p.status_code >= 400]
     if error_pages:
         findings.append(make_finding(
-            category="ai_discoverability", finding_type="defect", severity="medium",
-            status="confirmed", confidence=0.85,
+            category="ai_discoverability", finding_type="defect",
+            severity=step_down_severity("medium", crawl_ratio),
+            status="confirmed", confidence=scale_confidence(0.85, crawl_ratio),
             title="Broken pages found during crawl",
-            root_cause="Pages return 4xx/5xx status codes",
+            root_cause="Pages return 4xx/5xx status codes"
+                       + ("" if crawl_ratio >= 0.999 else
+                          f" (found within {acq_coverage.get('urls_analyzed', len(pages))} of "
+                          f"{acq_coverage.get('urls_discovered', len(pages))} discovered pages actually "
+                          "crawled -- the rest of the site was not checked)"),
             evidence=[{"type": "http_status", "description": f"{len(error_pages)} pages returned errors",
                        "urls": [p.url for p in error_pages][:10]}],
             suggested_action={
@@ -75,9 +92,17 @@ def analyze_crawlability(artifacts, deadline):
                         "rule_id": "broken-pages"},
         ))
 
-    coverage = {"pages_analyzed": len(pages), "pages_skipped": 0}
+    # Factual coverage: pages_analyzed is only the pages that actually carried
+    # readable content (2xx/3xx), and pages_skipped is the real count from
+    # acquisition, never a hardcoded 0 (Round-3 handout, Priority 2 #3/#7).
+    coverage = {
+        "pages_discovered": acq_coverage.get("urls_discovered", len(pages)),
+        "pages_analyzed": acq_coverage.get("urls_analyzed", len(pages)),
+        "pages_skipped": sum(acq_coverage.get("skip_reason_counts", {}).values()),
+    }
     return skill_result(
         "crawl-render-audit", findings=findings,
-        metrics={"pages_crawled": len(pages), "important_pages_reachable": len(important_pages)},
+        metrics={"pages_crawled": len(pages), "important_pages_reachable": len(important_pages),
+                 "crawl_coverage_ratio": round(crawl_ratio, 3)},
         coverage=coverage,
     )

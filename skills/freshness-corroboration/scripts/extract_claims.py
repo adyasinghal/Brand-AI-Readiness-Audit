@@ -1,5 +1,19 @@
-"""extract_claims.py -- heuristic, deterministic claim extraction (v4.0 section 8.3)."""
+"""extract_claims.py -- heuristic, deterministic claim extraction (v4.0 section 8.3).
+
+Each claim is tagged with a `category` -- operational / commercial / contact /
+editorial / historical / legal -- in addition to its shape-based `type`
+(date/price/contact/structured). The category matters downstream (assess_freshness)
+because "this date is old" means something completely different depending on what
+kind of fact it is attached to: an old copyright year (legal) is normal and not a
+defect, an old founding-story date (historical) is *supposed* to be old, an old
+"last verified" operational date is a real freshness problem, and a stale price or
+expired offer (commercial) is the highest-stakes case. Category is inferred from
+the page it was found on (page_type, set during acquisition) and, for structured
+facts, from which JSON-LD key produced it -- never from an analysis conclusion, so
+it stays a plain classification of what the fact IS, not a verdict on it.
+"""
 import re
+from collections.abc import Mapping
 from models import intermediate_artifact
 
 _DATE_RE = re.compile(
@@ -9,25 +23,55 @@ _DATE_RE = re.compile(
 _PRICE_RE = re.compile(r"[$\u20ac\u00a3]\s?\d[\d,]*(\.\d{2})?")
 _PHONE_RE = re.compile(r"\+?\d[\d\-\s\(\)]{7,}\d")
 
+# page_type (acquisition-owned) -> the category a bare date mention on that page
+# most plausibly belongs to. Not exhaustive by design -- anything not listed here
+# defaults to "operational", the safest middle ground (neither dismissed like
+# "historical" nor over-weighted like "commercial").
+_DATE_CATEGORY_BY_PAGE_TYPE = {
+    "legal": "legal",
+    "article": "editorial",
+    "product": "commercial",
+    "about": "historical",
+    "home": "historical",
+}
+
+# JSON-LD key -> category, for structured facts (independent of page_type, since a
+# priceRange or telephone means the same thing regardless of what page it's on).
+_STRUCTURED_KEY_CATEGORY = {
+    "priceRange": "commercial",
+    "telephone": "contact",
+    "address": "contact",
+    "sameAs": "editorial",
+    "name": "editorial",
+}
+
 
 def extract_claims(artifacts, deadline):
     claims = []
     for page in artifacts.pages:
         text = page.visible_text
+        date_category = _DATE_CATEGORY_BY_PAGE_TYPE.get(page.page_type, "operational")
         for m in _DATE_RE.finditer(text):
             claims.append({"source": page.url, "subject": "date_mention", "predicate": "mentions_date",
-                           "value": m.group(0), "type": "date", "importance": 0.5, "confidence": 0.6})
+                           "value": m.group(0), "type": "date", "category": date_category,
+                           "importance": 0.5, "confidence": 0.6})
         for m in _PRICE_RE.finditer(text):
             claims.append({"source": page.url, "subject": "price_mention", "predicate": "mentions_price",
-                           "value": m.group(0), "type": "price", "importance": 0.6, "confidence": 0.6})
+                           "value": m.group(0), "type": "price", "category": "commercial",
+                           "importance": 0.6, "confidence": 0.6})
         for m in _PHONE_RE.finditer(text):
             claims.append({"source": page.url, "subject": "contact", "predicate": "phone_number",
-                           "value": m.group(0), "type": "contact", "importance": 0.7, "confidence": 0.5})
+                           "value": m.group(0), "type": "contact", "category": "contact",
+                           "importance": 0.7, "confidence": 0.5})
         for block in page.jsonld_blocks:
-            if isinstance(block, dict):
+            # jsonld_blocks on a real (acquired) PageArtifact are frozen via
+            # freeze_value() into MappingProxyType, not plain dict (v4.0 section 2)
+            # -- Mapping catches both that and plain-dict test fixtures.
+            if isinstance(block, Mapping):
                 for key in ("name", "address", "telephone", "sameAs", "priceRange"):
                     if key in block:
                         claims.append({"source": page.url, "subject": block.get("@type", "entity"),
                                         "predicate": key, "value": block[key], "type": "structured",
+                                        "category": _STRUCTURED_KEY_CATEGORY.get(key, "operational"),
                                         "importance": 0.8, "confidence": 0.9})
     return intermediate_artifact("claims", data={"claims": claims})
