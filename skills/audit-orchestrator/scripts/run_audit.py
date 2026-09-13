@@ -11,6 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from time import monotonic
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+load_dotenv()  # for local development convenience; production uses environment variables
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 for _rel in (

@@ -1,0 +1,37 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local logs and generated temporary files
+*.log
+tmp/
+temp/
