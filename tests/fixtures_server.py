@@ -34,10 +34,21 @@ _ORPHAN = "<html><head><title>Orphan</title></head><body><h1>Orphan</h1>" \
           "<p>Nobody links here.</p></body></html>"
 
 
+_SITEMAP_OK = ("<?xml version='1.0' encoding='UTF-8'?>"
+               "<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>"
+               "<url><loc>{origin}/</loc></url><url><loc>{origin}/about</loc></url>"
+               "</urlset>")
+_SITEMAP_MALFORMED = "<urlset><url><loc>not closed"
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "FixtureHTTP/1.0"
     robots_body = _ROBOTS_ALLOW_ALL
+    robots_mode = "ok"  # "ok" | "absent" | "malformed" | "timeout" | "error"
     slow_delay_s = 0.0
+    sitemap_mode = "absent"  # "absent" | "ok" | "malformed"
+    llms_txt_mode = "absent"  # "absent" | "ok"
+    big_body_bytes = 0  # if >0, /big serves this many bytes
 
     def log_message(self, fmt, *args):  # silence test output
         pass
@@ -48,12 +59,37 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         if body:
-            self.wfile.write(body.encode("utf-8"))
+            if isinstance(body, str):
+                body = body.encode("utf-8")
+            self.wfile.write(body)
 
     def do_GET(self):
         path = self.path
+        origin = f"http://{self.headers.get('Host', '127.0.0.1')}"
         if path == "/robots.txt":
-            self._send(200, self.robots_body, {"Content-Type": "text/plain"})
+            if self.robots_mode == "absent":
+                self._send(404, "not found")
+            elif self.robots_mode == "malformed":
+                self._send(200, b"\xff\xfe\x00not valid utf-8 \x80\x81", {"Content-Type": "text/plain"})
+            elif self.robots_mode == "timeout":
+                time.sleep(self.slow_delay_s or 2.0)
+                self._send(200, self.robots_body, {"Content-Type": "text/plain"})
+            elif self.robots_mode == "error":
+                self._send(500, "error", {"Content-Type": "text/plain"})
+            else:
+                self._send(200, self.robots_body, {"Content-Type": "text/plain"})
+        elif path == "/sitemap.xml":
+            if self.sitemap_mode == "ok":
+                self._send(200, _SITEMAP_OK.format(origin=origin), {"Content-Type": "application/xml"})
+            elif self.sitemap_mode == "malformed":
+                self._send(200, _SITEMAP_MALFORMED, {"Content-Type": "application/xml"})
+            else:
+                self._send(404, "not found")
+        elif path == "/llms.txt":
+            if self.llms_txt_mode == "ok":
+                self._send(200, "# Example Brand\n", {"Content-Type": "text/plain"})
+            else:
+                self._send(404, "not found")
         elif path == "/":
             self._send(200, _HOME)
         elif path == "/about":
@@ -66,6 +102,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self._send(200, _ORPHAN)
         elif path == "/redirect":
             self._send(301, "", {"Location": "/about", "Content-Type": "text/html"})
+        elif path == "/redirect-external":
+            self._send(302, "", {"Location": "http://example.invalid.test/elsewhere",
+                                  "Content-Type": "text/html"})
+        elif path == "/big":
+            self._send(200, b"x" * self.big_body_bytes, {"Content-Type": "application/octet-stream"})
         elif path == "/slow":
             time.sleep(self.slow_delay_s)
             self._send(200, "<html><body>slow</body></html>")
@@ -75,11 +116,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self._send(404, "<html><body>not found</body></html>")
 
 
-def start_server(robots_body: str = _ROBOTS_ALLOW_ALL, slow_delay_s: float = 0.0):
+def start_server(robots_body: str = _ROBOTS_ALLOW_ALL, slow_delay_s: float = 0.0,
+                  robots_mode: str = "ok", sitemap_mode: str = "absent",
+                  llms_txt_mode: str = "absent", big_body_bytes: int = 0):
     """Starts a background server on 127.0.0.1 with an OS-assigned port. Returns
     (base_url, shutdown_fn)."""
     handler = type("BoundFixtureHandler", (FixtureHandler,), {
-        "robots_body": robots_body, "slow_delay_s": slow_delay_s,
+        "robots_body": robots_body, "slow_delay_s": slow_delay_s, "robots_mode": robots_mode,
+        "sitemap_mode": sitemap_mode, "llms_txt_mode": llms_txt_mode, "big_body_bytes": big_body_bytes,
     })
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)

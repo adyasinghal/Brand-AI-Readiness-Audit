@@ -25,7 +25,7 @@ def test_acquisition_respects_budget_against_slow_fixture():
         instrumentation = Instrumentation()
 
         started = monotonic()
-        acquire_site(base_url + "/slow", deadline, limits, instrumentation)
+        acquire_site(base_url + "/slow", deadline, limits, instrumentation, allow_private_targets=True)
         elapsed = monotonic() - started
 
         # One in-flight slow request can run past the acquisition budget by up to its
@@ -43,7 +43,7 @@ def test_instrumentation_records_real_stage_timings_not_placeholders():
         limits = Limits()
         deadline = make_deadline(limits)
         instrumentation = Instrumentation()
-        acquire_site(base_url + "/", deadline, limits, instrumentation)
+        acquire_site(base_url + "/", deadline, limits, instrumentation, allow_private_targets=True)
         telemetry = instrumentation.as_dict(memory_peak_mb=None)
         assert telemetry["stage_timings_s"]["acquisition"]["duration"] is not None
         assert telemetry["stage_timings_s"]["acquisition"]["duration"] >= 0
@@ -58,7 +58,7 @@ def test_memory_tracking_returns_a_measured_peak():
         limits = Limits()
         deadline = make_deadline(limits)
         instrumentation = Instrumentation()
-        acquire_site(base_url + "/", deadline, limits, instrumentation)
+        acquire_site(base_url + "/", deadline, limits, instrumentation, allow_private_targets=True)
         peak = instrumentation.stop_memory_tracking_mb()
         assert peak is not None
         assert peak >= 0

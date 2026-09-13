@@ -30,6 +30,23 @@ problems, or to run the brand-ai-readiness-audit marketplace end to end.
    (`prioritize_findings.py`), and validated (`validate_report.py`).
 4. Return the resulting report to the user as-is.
 
+## Safety guarantees (enforced by `acquire_site.py`, not just documented)
+- **SSRF protection**: every URL fetched -- the initial target, robots.txt,
+  sitemap.xml, llms.txt, discovered links, and every redirect hop -- is checked
+  by `common/url_safety.py` first. Disallowed schemes, credentials-in-URL, cloud
+  metadata hosts/IPs, and (by default) loopback/private/link-local/reserved
+  addresses are all rejected before any request is issued. Blocked URLs are
+  recorded as safety skips, never as findings.
+- **Robots.txt never fails open**: absence (a confirmed 404) is the only state
+  that means "allowed". Timeout, other HTTP errors, or an undecodable body make
+  the crawl conservative (only the single initial page, no links followed) and
+  are surfaced as `insufficient_evidence`, never inferred as a confirmed block.
+- **Read-only**: only GET requests are ever issued against the target site;
+  headless rendering only navigates and reads text, never submits forms or runs
+  page-mutating scripts.
+- **Byte budgets are enforced during download** (streaming), not after a full
+  response has already been pulled into memory.
+
 ## Output
 A JSON report matching `references/report-schema.md`: `site`, `audited_at`,
 `summary`, `coverage`, and `findings` (each with evidence, severity, and a

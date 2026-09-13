@@ -37,8 +37,10 @@ _LIMITS = DEFAULT_LIMITS
 def _empty_artifacts():
     return AuditArtifacts(
         site_url="https://example.com/", normalized_origin="https://example.com",
-        pages=(), robots_data={"allowed_general": True, "ai_crawler_directives": {}},
-        llms_txt_data={"present": False}, sitemap_data={"discovered": False},
+        pages=(), robots_data={"allowed_general": True, "status": "ok", "general_disallow": False,
+                                "ai_crawler_directives": {}},
+        llms_txt_data={"present": False, "status": "absent"},
+        sitemap_data={"discovered": False, "status": "absent", "urls": []},
         acquisition_metadata={}, warnings=(),
     )
 

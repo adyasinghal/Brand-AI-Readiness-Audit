@@ -19,6 +19,7 @@ CHECK_TIERS = MappingProxyType({
     "crawlability": "executable",
     "machine_readability_jsonld": "executable",
     "llms_txt_presence": "executable",
+    "sitemap_discovery": "executable",
     "claim_extraction_heuristic": "executable",
     "entity_resolution_from_jsonld": "executable",
     "site_graph_engagement": "executable",

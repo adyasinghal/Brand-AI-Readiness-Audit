@@ -1,4 +1,4 @@
-# Brand AI-Readiness Audit Marketplace (v4.1)
+# Brand AI-Readiness Audit Marketplace (v4.2)
 
 An Agent Skill Marketplace (agentskills.io format) that audits a website for
 AI discoverability and on-site engagement problems, and emits a single
@@ -79,6 +79,68 @@ and `AuditArtifacts` is wrapped in `MappingProxyType` (`freeze_value` in
 rather than silently corrupting shared state. `hash_artifacts()` provides a
 stable content hash for a frozen-artifact regression check.
 
+## Safety (`common/url_safety.py`, `acquire_site.py`)
+
+Every URL the audit is about to fetch -- the initial target, robots.txt,
+sitemap.xml, llms.txt, every discovered link, and every redirect hop -- passes
+`classify_url()` first:
+
+- only `http`/`https`; credentials-in-URL (`user:pass@host`) are rejected
+- known cloud-metadata hosts/IPs (e.g. `169.254.169.254`) are rejected
+  unconditionally, with no override
+- by default, loopback/private/link-local/multicast/reserved addresses are all
+  rejected; DNS resolution failure is treated as unsafe, not skipped
+- an `allow_private_targets` flag exists solely so tests can point the audit at
+  a local fixture server -- production callers (the CLI, `run_audit()`'s
+  default) never set it
+- redirects are followed one hop at a time so each hop is re-validated;
+  cross-origin redirects are recorded and not followed
+- response bodies are streamed and truncated against `MAX_TOTAL_BYTES` *during*
+  download, never after a full read
+
+Robots.txt is never allowed to fail open: a confirmed 404 (`absent`) is the
+only failure-adjacent state that means "allowed everything". Every other
+outcome -- `timeout`, `inaccessible` (other HTTP/connection error),
+`malformed` (undecodable body), or `blocked` (the robots URL itself failed the
+SSRF check) -- makes the crawl conservative (the single initial page only, no
+links followed) and is reported as `insufficient_evidence` by
+`analyze_crawlability`/`check_ai_crawler_access`, never inferred as either an
+allow or a confirmed disallow. `sitemap.xml` and `llms.txt` are now actually
+fetched (previously both were hardcoded to "not found" regardless of the real
+site -- see CHANGELOG below); their present/absent/inaccessible/malformed
+states are all distinguished and recorded in `sitemap_data`/`llms_txt_data`.
+
+Only GET requests are ever issued against the target site. Headless rendering
+(when available) only calls `page.goto()` and reads text -- it never submits a
+form, clicks, types, or evaluates page-mutating script.
+
+## Changelog (v4.1 -> v4.2)
+
+Fixed three correctness/safety gaps found by re-reading the actual code
+against the Round-3 handout's hard safety requirements, not just the v4.0
+architecture document:
+
+1. **No SSRF protection existed at all** -- any URL, including
+   `169.254.169.254` or a private/loopback address, would have been crawled.
+   Added `common/url_safety.py` and wired it into every fetch.
+2. **Robots.txt failed open**: `allowed = rp.can_fetch(...) if robots_ok else
+   True` meant a robots.txt fetch failure was treated as *allowed*. Fixed to
+   fail closed (conservative single-page crawl) and to distinguish
+   ok/absent/timeout/inaccessible/malformed/blocked instead of a single
+   boolean.
+3. **`llms.txt` and `sitemap.xml` were never fetched** -- both were hardcoded
+   to "not found"/"not discovered" regardless of the actual site. Both are now
+   really fetched and parsed, bounded, with their fetch status recorded.
+
+Also fixed: byte budgets are now enforced by streaming and truncating mid-
+download instead of only checking the total after each full response; redirects
+are now followed one hop at a time with same-origin enforcement instead of via
+`requests`' built-in `allow_redirects=True` (which does not re-validate SSRF
+per hop). 25 new tests in `tests/test_safety.py` cover all of the above; none
+of the 42 pre-existing tests needed behavior changes (three test call sites
+needed an explicit `allow_private_targets=True` to keep pointing at the local
+fixture server, and two fixtures needed a `status` field added).
+
 ## Run it
 
 ```
@@ -93,7 +155,7 @@ corroboration/footprint search; without it, those checks report
 
 ## Tests
 
-42 tests across 5 files, all network-free (a local `ThreadingHTTPServer`
+68 tests across 7 files, all network-free (a local `ThreadingHTTPServer`
 fixture stands in for live sites -- see `tests/fixtures_server.py`):
 
 - `tests/test_smoke.py` -- full DAG wiring against a synthetic fixture.
@@ -111,6 +173,13 @@ fixture stands in for live sites -- see `tests/fixtures_server.py`):
   and the four required recommendation scenarios.
 - `tests/test_capabilities_and_immutability.py` -- capability-tier registry
   and the `MappingProxyType` mutation-detection layer.
+- `tests/test_safety.py` -- SSRF/URL-safety classification (schemes,
+  credentials, loopback/private/link-local/metadata, DNS-failure), every
+  robots.txt fetch state (ok/absent/timeout/inaccessible/malformed) and its
+  fail-closed behavior, real sitemap.xml/llms.txt fetch states, mid-stream
+  byte-budget truncation, same-origin vs. cross-origin redirect handling, and
+  a static guard against mutating HTTP methods or form-submitting/JS-evaluating
+  Playwright calls.
 
 ```
 python3 -m pytest tests/ -q

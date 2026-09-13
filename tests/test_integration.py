@@ -30,7 +30,7 @@ def test_normal_crawl_discovers_pages_and_structured_data():
         limits = Limits()
         deadline = make_deadline(limits)
         instrumentation = Instrumentation()
-        artifacts = acquire_site(base_url + "/", deadline, limits, instrumentation)
+        artifacts = acquire_site(base_url + "/", deadline, limits, instrumentation, allow_private_targets=True)
 
         urls = {p.url for p in artifacts.pages}
         assert base_url + "/" in urls
@@ -47,7 +47,7 @@ def test_robots_disallow_all_blocks_crawl():
         limits = Limits()
         deadline = make_deadline(limits)
         instrumentation = Instrumentation()
-        artifacts = acquire_site(base_url + "/", deadline, limits, instrumentation)
+        artifacts = acquire_site(base_url + "/", deadline, limits, instrumentation, allow_private_targets=True)
         # Home page itself is disallowed -> no pages acquired, and the skip is recorded.
         assert len(artifacts.pages) == 0
         assert instrumentation.pages_skipped >= 1
@@ -61,7 +61,7 @@ def test_redirect_is_followed_and_recorded():
     try:
         limits = Limits()
         deadline = make_deadline(limits)
-        artifacts = acquire_site(base_url + "/", deadline, limits)
+        artifacts = acquire_site(base_url + "/", deadline, limits, allow_private_targets=True)
         home = next(p for p in artifacts.pages if p.url == base_url + "/")
         assert "/redirect" in home.internal_links or True  # link discovered from home
     finally:
@@ -73,7 +73,7 @@ def test_malformed_jsonld_recorded_as_warning_not_a_crash():
     try:
         limits = Limits()
         deadline = make_deadline(limits)
-        artifacts = acquire_site(base_url + "/", deadline, limits)
+        artifacts = acquire_site(base_url + "/", deadline, limits, allow_private_targets=True)
         malformed_page = next((p for p in artifacts.pages if p.url == base_url + "/malformed"), None)
         assert malformed_page is not None
         assert "malformed_jsonld_block" in malformed_page.warnings
@@ -88,7 +88,7 @@ def test_error_page_reflected_in_crawlability_finding():
         limits = Limits()
         deadline = make_deadline(limits)
         # Point the crawler at an error page directly to force a 500 into the artifact set.
-        artifacts = acquire_site(base_url + "/error", deadline, limits)
+        artifacts = acquire_site(base_url + "/error", deadline, limits, allow_private_targets=True)
         result = analyze_crawlability(artifacts, deadline)
         assert any(f["provenance"]["rule_id"] == "broken-pages" for f in result["findings"])
     finally:
@@ -101,7 +101,7 @@ def test_slow_endpoint_times_out_and_is_recorded_as_failed_request():
         limits = replace(Limits(), PER_FETCH_TIMEOUT_MS=200, MAX_FETCH_RETRIES=0)
         deadline = make_deadline(limits)
         instrumentation = Instrumentation()
-        artifacts = acquire_site(base_url + "/slow", deadline, limits, instrumentation)
+        artifacts = acquire_site(base_url + "/slow", deadline, limits, instrumentation, allow_private_targets=True)
         assert instrumentation.requests_failed >= 1
         # A failed fetch still yields a PageArtifact with fetch_failed recorded, never a crash.
         page = artifacts.pages[0]
@@ -116,7 +116,7 @@ def test_js_heavy_page_suspected_without_headless_capability():
     try:
         limits = Limits()
         deadline = make_deadline(limits)
-        artifacts = acquire_site(base_url + "/js-heavy", deadline, limits)
+        artifacts = acquire_site(base_url + "/js-heavy", deadline, limits, allow_private_targets=True)
         result = analyze_rendering(artifacts, deadline, limits, capabilities={"headless_rendering": False})
         assert base_url + "/js-heavy" in result["metrics"]["raw_rendered_gap_pages"]
         gap_findings = [f for f in result["findings"] if f["provenance"]["rule_id"] == "render-gap"]
@@ -134,7 +134,7 @@ def test_js_heavy_page_confirmed_by_real_headless_render_when_available():
     try:
         limits = Limits()
         deadline = make_deadline(limits)
-        artifacts = acquire_site(base_url + "/js-heavy", deadline, limits)
+        artifacts = acquire_site(base_url + "/js-heavy", deadline, limits, allow_private_targets=True)
         result = analyze_rendering(artifacts, deadline, limits, capabilities=caps)
         gap_findings = [f for f in result["findings"] if f["provenance"]["rule_id"] == "render-gap"]
         assert gap_findings and gap_findings[0]["status"] == "confirmed"
@@ -149,7 +149,7 @@ def test_orphan_page_detected_by_site_graph():
     try:
         limits = Limits()
         deadline = make_deadline(limits)
-        artifacts = acquire_site(base_url + "/", deadline, limits)
+        artifacts = acquire_site(base_url + "/", deadline, limits, allow_private_targets=True)
         # /orphan is never linked from the fixture site.
         graph = build_site_graph(artifacts, deadline)
         # It won't appear in artifacts.pages at all unless separately crawled, which
@@ -162,7 +162,7 @@ def test_orphan_page_detected_by_site_graph():
 def test_full_run_audit_end_to_end_against_local_fixture():
     base_url, shutdown = start_server()
     try:
-        report = run_audit(base_url + "/")
+        report = run_audit(base_url + "/", allow_private_targets=True)
         assert report["site"] == base_url + "/"
         assert "findings" in report and "recommendations" in report
         assert len(report["recommendations"]) > 0

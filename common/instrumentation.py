@@ -26,7 +26,12 @@ class Instrumentation:
     external_fetches_attempted: int = 0
     external_fetches_completed: int = 0
     worker_timeout_events: list = field(default_factory=list)  # [{"stage":..,"worker":..,"at":..}]
+    requests_retried: int = 0
+    responses_truncated: int = 0
+    urls_deduplicated: int = 0
+    safety_blocks: list = field(default_factory=list)  # [{"url":.., "reason":..}], capped
     _tracemalloc_started_here: bool = field(default=False, repr=False)
+    _SAFETY_BLOCKS_CAP: int = field(default=50, repr=False)
 
     def start_stage(self, name: str) -> None:
         with self._lock:
@@ -50,6 +55,25 @@ class Instrumentation:
         with self._lock:
             self.pages_skipped += 1
             self.pages_skipped_reasons.append(reason)
+
+    def record_retry(self) -> None:
+        with self._lock:
+            self.requests_retried += 1
+
+    def record_truncated(self) -> None:
+        with self._lock:
+            self.responses_truncated += 1
+
+    def record_deduplicated(self) -> None:
+        with self._lock:
+            self.urls_deduplicated += 1
+
+    def record_safety_block(self, url: str, reason: str) -> None:
+        with self._lock:
+            self.pages_skipped += 1
+            self.pages_skipped_reasons.append(f"safety_block:{reason}")
+            if len(self.safety_blocks) < self._SAFETY_BLOCKS_CAP:
+                self.safety_blocks.append({"url": url, "reason": reason})
 
     def record_external_fetch(self, ok: bool) -> None:
         with self._lock:
@@ -90,9 +114,13 @@ class Instrumentation:
             "requests_attempted": self.requests_attempted,
             "requests_completed": self.requests_completed,
             "requests_failed": self.requests_failed,
+            "requests_retried": self.requests_retried,
+            "responses_truncated": self.responses_truncated,
+            "urls_deduplicated": self.urls_deduplicated,
             "bytes_downloaded": self.bytes_downloaded,
             "pages_skipped": self.pages_skipped,
             "pages_skipped_reasons": self.pages_skipped_reasons,
+            "safety_blocks": self.safety_blocks,
             "external_fetches_attempted": self.external_fetches_attempted,
             "external_fetches_completed": self.external_fetches_completed,
             "worker_timeout_events": self.worker_timeout_events,

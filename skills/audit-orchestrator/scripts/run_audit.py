@@ -120,13 +120,17 @@ def run_dependent_batch(facts, entity_identity, artifacts, site_graph, rendering
     return results
 
 
-def run_audit(site_url: str, limits=DEFAULT_LIMITS) -> dict:
+def run_audit(site_url: str, limits=DEFAULT_LIMITS, allow_private_targets: bool = False) -> dict:
+    """allow_private_targets defaults to False (safe): the CLI and any production
+    caller never sets it. It exists only so tests can point the audit at a local
+    ThreadingHTTPServer on 127.0.0.1 without weakening the default SSRF policy."""
     site_url = validate_input(site_url)
     deadline = make_deadline(limits)
     instrumentation = Instrumentation()
     capabilities = detect_capabilities()
 
-    artifacts = acquire_site(site_url, deadline, limits, instrumentation)
+    artifacts = acquire_site(site_url, deadline, limits, instrumentation,
+                              allow_private_targets=allow_private_targets)
 
     independent = run_independent_batch(artifacts, deadline, limits, capabilities, instrumentation)
 

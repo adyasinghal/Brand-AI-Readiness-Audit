@@ -1,6 +1,6 @@
 {
   "name": "brand-ai-readiness-audit",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "skills": [
     { "id": "audit-orchestrator", "path": "skills/audit-orchestrator", "entrypoint": true },
     { "id": "crawl-render-audit", "path": "skills/crawl-render-audit" },
