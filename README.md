@@ -1,177 +1,184 @@
-# Brand AI-Readiness Audit Marketplace Skill
+# Brand AI-Readiness Audit
 
-> **Adobe University Hackathon 2026 — Round 3: Agent Skill Marketplace**  
-> **Entrypoint:** `skills/audit-orchestrator`  
-> **Package Footprint:** Pure Python 3 Standard Library | Zero External Dependencies | < 100 KB Total Size
+A multi-skill Agent Skill Marketplace that audits any website for **AI discoverability** and **on-site engagement** problems. Given a URL, the entrypoint crawls the site (read-only, bounded) and produces a single structured JSON report containing evidence-backed findings and prioritized suggested actions. It never modifies a live site.
 
-A tournament-hardened CLI Agent Skill package evaluating modern web domains for **Generative Engine Optimization (GEO)**, AI search engine discoverability (ChatGPT Search, Claude, Perplexity), Schema.org semantic extractability, knowledge graph entity disambiguation, and post-click visitor retention.
+## Skills
 
----
+### 1. `audit-orchestrator` *(entrypoint)*
 
-## 1. System Architecture & Topology
+Validates the target URL, performs a single bounded acquisition (robots.txt, sitemap, llms.txt, HTML pages), then schedules and composes the outputs of all other skills into one final report. Handles deduplication, severity prioritization, recommendation generation, and report validation.
 
-```text
-brand-ai-readiness-audit/
-├── marketplace.json                   ← Marketplace manifest registering entrypoint & sub-skills
-├── README.md                          ← Architecture, execution guide, and rubric mapping
-└── skills/
-    ├── audit-orchestrator/            ← [ENTRYPOINT SKILL]
-    │   ├── SKILL.md                   ← Master coordination instructions & pipeline flow
-    │   ├── scripts/
-    │   │   └── merge_and_prioritize.py← Dual-mode (stdin/glob), deduplicates, enforces Invariant I-1
-    │   └── references/
-    │       ├── output-schema.json     ← Formal JSON schema specification
-    │       ├── priority-matrix.md     ← Deterministic priority decision rules
-    │       └── proactive-playbook.md  ← Forward-looking AI recommendations catalog
+### 2. `crawl-render-audit`
+
+Analyzes the acquisition snapshot for crawlability and machine-readability issues:
+- Robots.txt and AI-crawler access (GPTBot, ChatGPT-User, etc.)
+- Sitemap and llms.txt presence
+- Recursive JSON-LD structured data inspection and schema-type coverage
+- Technical metadata (titles, descriptions, canonicals, language, social cards)
+- Page performance (HTML size, markup ratio, fetch latency)
+- Rendering gap detection (JS-dependent content)
+
+### 3. `freshness-corroboration`
+
+Analyzes page content quality and entity identity:
+- Claim extraction and important-fact ranking
+- Freshness assessment of dated commercial facts
+- Entity identity resolution from structured data
+- Answer-content quality (title-body alignment, keyword stuffing, brand definition)
+- External footprint and corroboration (when search is available)
+
+### 4. `engagement-audit`
+
+Analyzes on-site visitor engagement and navigation:
+- Site graph construction (internal link structure)
+- Orphan pages, isolated clusters, and dead-end detection
+- Breadcrumb and orientation analysis
+- Internal discoverability and generic anchor text
+- Visitor retention opportunities
+
+### 5. `entity-corroboration-agent`
+
+An agent-executed qualitative stage. When invoked by an AI agent with web search capability, it:
+- Assesses About-page concreteness
+- Checks cross-web entity agreement or contradiction
+- Produces structured findings the entrypoint merges into the report
+
+Skips gracefully when no search capability is available — does not report its own absence as a site defect.
+
+## How the entrypoint composes them
+
+```
+URL input
     │
-    ├── crawl-render-audit/            ← [Stage 1: Machine Access]
-    │   ├── SKILL.md                   ← Access auditing workflow
-    │   ├── scripts/
-    │   │   └── check_access.py        ← robots.txt (RobotFileParser), sitemap (ET), CSR gap, cache write
-    │   └── references/
-    │       └── ai-bot-signatures.md   ← Monitored AI crawler user-agents
-    │
-    ├── semantic-data-audit/           ← [Stage 2: Fact Extraction]
-    │   ├── SKILL.md                   ← Fact extraction & vertical gating workflow
-    │   ├── scripts/
-    │   │   └── parse_structured_data.py ← @graph unpacker, baseline + gated schemas, cache-first fetch
-    │   └── references/
-    │       └── schema-requirements.md ← Schema.org baseline vs vertical standards
-    │
-    ├── entity-authority-audit/        ← [Stage 3: Identity & Trust]
-    │   ├── SKILL.md                   ← Qualitative About-page & cross-web forum search instructions
-    │   ├── scripts/
-    │   │   └── check_entity_trust.py  ← 128KB sliced Title/H1/OG consistency, copyright, sameAs
-    │   └── references/
-    │       └── disambiguation-signals.md ← Authoritative knowledge graph registries
-    │
-    └── engagement-friction-audit/     ← [Stage 4: Visitor Retention]
-        ├── SKILL.md                   ← Retention analysis & Appendix F workflow
-        ├── scripts/
-        │   └── check_friction.py      ← Viewport meta, modal detection, hash routing, email AI check
-        └── references/
-            └── retention-playbook.md  ← Above-the-fold density & email AI summarizer survival
+    ▼
+┌─────────────────────────┐
+│   audit-orchestrator     │  ← entrypoint
+│   1. Validate URL        │
+│   2. Acquire site once   │
+│      (robots, sitemap,   │
+│       llms.txt, pages)   │
+│   3. Schedule analysis   │
+│      DAG in parallel:    │
+│      ┌─────────────────┐ │
+│      │ crawl-render     │ │
+│      │ freshness        │ │
+│      │ engagement       │ │
+│      │ entity-agent     │ │
+│      └─────────────────┘ │
+│   4. Merge & deduplicate │
+│   5. Prioritize findings │
+│   6. Generate recs       │
+│   7. Validate report     │
+│   8. Emit JSON to stdout │
+└─────────────────────────┘
 ```
 
----
+All four analysis skills read the same immutable acquisition snapshot — no redundant fetching.
 
-## 2. Quickstart Execution Guide
-
-All scripts are 100% self-contained Python 3 standard library programs. Zero `pip install` or external runtimes required.
-
-### 1. The Full End-to-End Audit (Single Command)
-
-Run this command block directly in the repository root (replace `https://example.com` with any target URL):
+## Quick start
 
 ```bash
-TARGET="https://example.com"
-rm -f /tmp/audit_runs/* && mkdir -p /tmp/audit_runs
-
-python3 skills/crawl-render-audit/scripts/check_access.py "$TARGET" > /tmp/audit_runs/01_access.json
-python3 skills/semantic-data-audit/scripts/parse_structured_data.py "$TARGET" > /tmp/audit_runs/02_semantic.json
-python3 skills/entity-authority-audit/scripts/check_entity_trust.py "$TARGET" > /tmp/audit_runs/03_entity.json
-python3 skills/engagement-friction-audit/scripts/check_friction.py "$TARGET" > /tmp/audit_runs/05_friction.json
-
-# Merge, enforce Invariant I-1, and print validated report to stdout
-python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py "$TARGET" /tmp/audit_runs/*.json
+python3 skills/audit-orchestrator/scripts/run_audit.py https://example.com > report.json
 ```
 
-### 2. Testing Individual Sub-Skills in Isolation
+No installation required beyond Python 3.10+ standard library. No pip install, no API keys, no browser download.
 
-Each sub-skill script is completely self-contained and outputs validated JSON directly to `stdout`. Evaluators can spot-check any individual audit pillar in isolation:
+## Safety
 
-```bash
-# Pillar 1: Machine Access & AI Crawlers (robots.txt permissions, sitemaps, CSR render gaps)
-python3 skills/crawl-render-audit/scripts/check_access.py https://nytimes.com
+- **Read-only**: only HTTP GET; no authentication, form submission, or site modification.
+- **SSRF protection**: every URL (target, redirects, discovered links, sitemaps) is validated against loopback, private, link-local, multicast, reserved, and cloud-metadata ranges.
+- **Robots-first**: unknown robots permission prevents page acquisition (fail closed, not open).
+- **Bounded**: 50-page crawl cap, 90-request budget, 40 MiB body limit, 270-second wall-clock timeout.
+- **Streaming**: response bodies are streamed under per-request byte caps to prevent memory exhaustion.
 
-# Pillar 2: Schema.org Structured Data & @graph Extraction
-python3 skills/semantic-data-audit/scripts/parse_structured_data.py https://stripe.com
+## Marketplace structure
 
-# Pillar 3: Entity Trust & Brand Consistency (Title/H1/OG harmony & sameAs links)
-python3 skills/entity-authority-audit/scripts/check_entity_trust.py https://example.com
-
-# Pillar 4: Engagement Friction, Viewport Scaling & Email AI Summarizers
-python3 skills/engagement-friction-audit/scripts/check_friction.py https://stripe.com
+```
+Brand-AI-Readiness-Audit/          <- marketplace root 
+├── marketplace.json               <- manifest: lists all skills, marks the entrypoint
+├── README.md                      <- this file
+├── .gitignore
+├── common/                        <- shared library imported by every skill
+│   ├── __init__.py
+│   ├── action_catalog.py          <- baseline suggested-action templates per category
+│   ├── capabilities.py            <- runtime capability detection (rendering, search)
+│   ├── check_catalog.py           <- single source of check_id -> mechanism/fix wording
+│   ├── check_helpers.py
+│   ├── constants.py               <- crawl caps, budgets, timeouts
+│   ├── errors.py
+│   ├── html_features.py
+│   ├── instrumentation.py         <- request/stage telemetry
+│   ├── models.py                  <- immutable AuditArtifacts, finding factory, invariants
+│   ├── robots_policy.py           <- robots.txt parsing and fail-closed policy
+│   ├── search_provider.py         <- optional external-search adapter
+│   ├── structured_data.py         <- JSON-LD extraction/parsing
+│   ├── subprocess_isolation.py    <- bounded worker isolation
+│   ├── tls_context.py             <- verified-TLS transport context
+│   ├── transport.py               <- streaming, byte-capped HTTP GET
+│   └── url_safety.py              <- SSRF validation (loopback/private/metadata ranges)
+├── skills/
+│   ├── audit-orchestrator/        <- ENTRYPOINT: composes all other skills
+│   │   ├── SKILL.md
+│   │   ├── references/
+│   │   │   ├── audit-state-schema.md
+│   │   │   ├── execution-policy.md
+│   │   │   ├── finding-schema.md
+│   │   │   └── report-schema.md
+│   │   └── scripts/
+│   │       ├── run_audit.py               <- CLI + top-level pipeline
+│   │       ├── acquire_site.py            <- single bounded acquisition
+│   │       ├── merge_findings.py          <- dedup + merge across skills
+│   │       ├── prioritize_findings.py     <- severity ordering
+│   │       ├── generate_recommendations.py
+│   │       ├── validate_report.py         <- schema + invariant enforcement
+│   │       ├── execution_summary.py       <- status/limitations/confidence
+│   │       └── diagnose_transport.py
+│   ├── crawl-render-audit/        <- crawlability + machine-readability checks
+│   │   ├── SKILL.md
+│   │   ├── references/crawl-render-checklist.md
+│   │   └── scripts/
+│   │       ├── analyze_crawlability.py
+│   │       ├── analyze_directives.py
+│   │       ├── analyze_machine_readability.py
+│   │       ├── analyze_metadata.py
+│   │       ├── analyze_performance.py
+│   │       ├── analyze_rendering.py
+│   │       ├── check_ai_crawler_access.py
+│   │       └── check_llms_txt.py
+│   ├── freshness-corroboration/  <- content quality, freshness, entity identity
+│   │   ├── SKILL.md
+│   │   ├── references/freshness-corroboration-methodology.md
+│   │   └── scripts/
+│   │       ├── extract_claims.py
+│   │       ├── identify_important_facts.py
+│   │       ├── assess_freshness.py
+│   │       ├── resolve_entity_identity.py
+│   │       ├── analyze_answer_content.py
+│   │       ├── corroborate_claims.py
+│   │       └── assess_external_footprint.py
+│   ├── engagement-audit/         <- on-site navigation + visitor engagement
+│   │   ├── SKILL.md
+│   │   ├── references/engagement-checklist.md
+│   │   └── scripts/
+│   │       ├── build_site_graph.py
+│   │       ├── analyze_engagement.py
+│   │       └── analyze_experience.py
+│   └── entity-corroboration-agent/  <- agent-executed qualitative corroboration
+│       ├── SKILL.md
+│       ├── references/checks.md
+│       └── scripts/ingest_agent_findings.py
+└── tests/                        <- pytest suite + local fixtures (not required to run an audit)
+    ├── fixtures_server.py
+    ├── tls-fixtures/             <- self-signed certs for TLS-recovery tests
+    └── test_*.py
 ```
 
-### 3. Dual-Mode Unix Pipe Support
-
-The orchestrator script supports standard Unix stream piping:
-```bash
-cat /tmp/audit_runs/*.json | python3 skills/audit-orchestrator/scripts/merge_and_prioritize.py https://example.com > /tmp/final_report.json
-```
-
-### 4. Benchmark Evaluation Targets
-
-To evaluate pattern generalization across diverse web architectures, test against these representative archetypes:
-
-| Archetype | Sample URL | Target Evaluation Stress-Test |
-| :--- | :--- | :--- |
-| **Aggressive AI Bot Blocker** | `https://nytimes.com` | Deterministically flags `Disallow: /` for 11 AI crawlers (`GPTBot`, `ClaudeBot`, `PerplexityBot`) with remediation snippet |
-| **Clean Baseline Benchmark** | `https://stripe.com` | 0 false-positive defects; surfaces proactive Appendix F email AI summarizer recommendations |
-| **Missing Baseline Schema** | `https://example.com` | Detects missing `Organization`/`WebSite` JSON-LD, 404 sitemap, and recommends `/llms.txt` |
-| **Single-Page Application (CSR)** | `https://react.dev` | Audits raw SSR HTML payload vs minified JS chunks to ensure AI search bots without JS engines can extract facts |
-
----
-
-## 3. The Five Core Audit Pillars
-
-### 1. Crawlability & Machine Access (`crawl-render-audit`)
-*   **AI Crawler Permissions:** Uses stdlib `urllib.robotparser.RobotFileParser` to evaluate `/robots.txt` access rules against 12 leading AI crawler signatures (`GPTBot`, `ChatGPT-User`, `ClaudeBot`, `PerplexityBot`, `Applebot-Extended`, `Google-Extended`, etc.).
-*   **Sitemap Health:** Discovers sitemaps via `robots.txt` or standard `/sitemap.xml`, parses XML via `xml.etree.ElementTree`, and flags stale `<lastmod>` timestamps (>2 years old).
-*   **CSR Shell Render Gaps:** Detects Single-Page Applications (SPAs) serving empty or sparse HTML skeletons before client JS runs, distinguishing between 100% empty shells (**Critical**) and partial render gaps (**High**).
-*   **AI Discovery Manifest:** Audits presence of `/llms.txt` with redirect and soft-404 verification.
-
-### 2. Semantic Data & Fact Extraction (`semantic-data-audit`)
-*   **Recursive `@graph` Unpacking:** Fully unpacks nested `@graph` arrays from popular CMS SEO plugins (Yoast, RankMath) without dropping typed container nodes.
-*   **Universal Baseline Coverage:** Flags missing `Organization` or `WebSite` structured entities as **High** severity defects.
-*   **Gated Vertical Schema Opportunities:** Emits proactive recommendations for vertical schemas (`Product`, `LocalBusiness`, `FAQPage`, `BreadcrumbList`) **only** when unambiguous on-page signals exist (e.g. currency price AND purchase intent buttons). Prevents false positives on blogs or academic domains.
-
-### 3. Entity Authority & Identity Disambiguation (`entity-authority-audit`)
-*   **Decoupled Sliced Scanning:** Separately scans `<head>` (up to 262 KB) for `<title>` / `<meta>` and `<body>` (top 128 KB) for `<h1>`. Eliminates truncation bugs on production Shopify/Next.js domains with 100KB+ inline CSS/scripts.
-*   **Brand Naming Harmony:** Evaluates significant token consistency between `<title>`, `<h1>`, and `<meta property="og:title">`.
-*   **Freshness Signals:** Checks footer copyright year against the current year.
-*   **Knowledge Graph Disambiguation:** Checks for `sameAs` authoritative links (Wikidata, Wikipedia, LinkedIn, Crunchbase) in `Organization` JSON-LD.
-*   **Evaluator Agent Fallback:** Evaluates About-page clarity and cross-web community consensus (Reddit/Quora) with explicit graceful fallback if search tools are unavailable.
-
-### 4. Visitor Retention & Engagement Friction (`engagement-friction-audit`)
-*   **Mobile Viewport Configuration:** Verifies responsive `<meta name="viewport">` in `<head>` to prevent referral bounce from mobile AI apps.
-*   **Intrusive Modal Detection:** Detects blocking backdrop overlays that trigger instant visitor abandonment.
-*   **Deep-Link Navigation:** Detects client hash-based routing (`#/page`) that breaks direct citation URLs.
-*   **Appendix F Fast Email Optimization:** Detects email capture forms and emits guidance for inbox AI summarizers (Apple Intelligence Mail, Gmail Gemini).
-
-### 5. Entrypoint Orchestration (`audit-orchestrator`)
-*   **Invariant I-1 Structural Gating:** Automatically caps any finding with inconclusive or unverifiable evidence markers to `low` severity, preventing ungrounded high/critical accusations.
-*   **Deterministic Prioritization:** Sorts all findings strictly by the 4-tier matrix (`critical` → `high` → `medium` → `low`) and assigns sequential `F-001` IDs.
-
----
-
-## 4. Engineering Defenses & Hackathon Rubric Alignment
-
-| Rubric Dimension | Evaluator Requirement | Our Implementation Guarantee |
-|---|---|---|
-| **Accuracy & False Positives** | Strict penalty for hallucinated or ungrounded accusations | **Invariant I-1** universal evidence gating; gated vertical schemas (no fake Product alerts on non-commerce sites); decoupled 128KB body slicing; forced-Gzip auto-decompression. |
-| **Suggested-Action Quality** | Concrete, actionable engineering guidance | Every finding features a 4-part structured action object (`summary`, `priority`, `implementation_detail`, `expected_outcome`). |
-| **Package Constraints** | Under 50 MB total package size, pure standard system | **< 100 KB actual package size** (<0.2% of ceiling). **0 external dependencies** (no `requests`, `bs4`, `playwright`, `selenium`). |
-| **Runtime Budget** | Under 5 minutes total execution | **< 3 seconds total wall-clock execution**. Network efficiency protected by single shared cache (`/tmp/audit_runs/page.html`). |
-| **State Contamination Defense** | Clean successive runs across domains | Pre-run isolation wipes `/tmp/audit_runs/*` (not just `*.json`), preventing Site A's cached HTML from leaking into Site B. Disk cache operations enforce `errors="replace"` to eliminate `UnicodeEncodeError`. |
-
----
-
-## 5. Automated Verification & QA Commands
+## Testing
 
 ```bash
-# 1. Zero External Dependencies Verification (Must return 0 lines)
-grep -rnE "import (requests|bs4|playwright|selenium|lxml|aiohttp)" ./skills/
-
-# 2. Syntax Validation Across All Python Scripts
-python3 -m py_compile skills/audit-orchestrator/scripts/merge_and_prioritize.py
-python3 -m py_compile skills/crawl-render-audit/scripts/check_access.py
-python3 -m py_compile skills/semantic-data-audit/scripts/parse_structured_data.py
-python3 -m py_compile skills/entity-authority-audit/scripts/check_entity_trust.py
-python3 -m py_compile skills/engagement-friction-audit/scripts/check_friction.py
-
-# 3. Package Size Verification (Must be < 50 MB)
-zip -r brand-ai-readiness-audit.zip marketplace.json README.md skills/
-ls -lh brand-ai-readiness-audit.zip
+pip install pytest   # optional, for pytest runner
+python3 tests/test_smoke.py              # quick DAG + report validation
+python3 tests/test_safety.py             # SSRF, robots, redirects
+python3 tests/test_integration.py        # full end-to-end against local fixture
+python3 tests/test_dedup_and_recommendations.py  # dedup + recommendations
 ```
