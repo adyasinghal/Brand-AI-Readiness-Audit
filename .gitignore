@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and runtime files
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Environments
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+
+# IDE and Editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Internal/Personal Docs & Archives
+/personal_docs/
+/om's_old_code/
+*.zip
+
+# Local test outputs and audit results
+/json_results/
+report*.json
+
+# Tooling configs not part of submission
+pyrightconfig.json
